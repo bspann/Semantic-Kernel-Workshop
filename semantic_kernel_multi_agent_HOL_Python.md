@@ -7,7 +7,7 @@ This comprehensive hands-on lab will guide you through building advanced multi-a
 ### Development Environment
 
 - Visual Studio Code
-- Python 3.8 or later (Python 3.10+ recommended)  
+- Python 3.10 or later (recommended for compatibility with latest Semantic Kernel features)  
 - Python extension for VS Code
 
 ### Required Azure OpenAI Resources
@@ -23,27 +23,29 @@ Before starting this multi-agent lab, you'll need to install the following Pytho
 
 | Package Name | Version | Purpose |
 |--------------|---------|---------|
-| `semantic-kernel[azure]` | Latest | Core Semantic Kernel with Azure connectors including agent support |
-| `azure-identity` | Latest | Azure authentication and credential management |
+| `semantic-kernel[azure]` | Latest stable | Core Semantic Kernel with Azure connectors including agent support |
 | `python-dotenv` | Latest | Environment variable management for secure configuration |
-| `asyncio` | Built-in | Asynchronous programming support |
-| `typing-extensions` | Latest | Enhanced type hints for Python |
-| `pydantic` | Latest | Data validation and serialization |
+| `pydantic` | Latest | Data validation and serialization for structured data |
 
 **Installation Command:**
 
 ```bash
 # Run this single command to install all required packages
-pip install semantic-kernel[azure] azure-identity python-dotenv typing-extensions pydantic
+pip install semantic-kernel[azure] python-dotenv pydantic
 ```
+
+**Note on Package Simplification:**
+
+- The `semantic-kernel[azure]` extra automatically includes `azure-identity`, `azure-core`, and other Azure-specific dependencies that are officially tested with Semantic Kernel
+- `asyncio` is a built-in Python module (Python 3.4+) and doesn't need separate installation
+- `typing-extensions` is typically included as a dependency of modern Python packages when needed
+- Advanced agent features like OpenAI Responses Agent require Semantic Kernel Python 1.27.0 or later
 
 **Alternative Individual Installation:**
 
 ```bash
 pip install semantic-kernel[azure]
-pip install azure-identity
 pip install python-dotenv
-pip install typing-extensions
 pip install pydantic
 ```
 
@@ -70,7 +72,7 @@ pip install pydantic
 3. **Install required packages**:
 
    ```bash
-   pip install semantic-kernel[azure] azure-identity python-dotenv typing-extensions pydantic
+   pip install semantic-kernel[azure] python-dotenv pydantic
    ```
 
    > **What you're doing:** These packages provide the core multi-agent capabilities, Azure Government integration, and supporting functionality needed for advanced agent orchestration.
@@ -162,7 +164,7 @@ import asyncio
 from typing import List, Optional
 from datetime import datetime
 from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.azure_open_ai import AzureOpenAIChatCompletion
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 from semantic_kernel.contents import ChatHistory, ChatMessageContent
 from agent_base import AgentBase
 
@@ -181,7 +183,7 @@ class ChatCompletionAgent(AgentBase):
         self.kernel = kernel
         self.system_prompt = system_prompt
         self.chat_history = ChatHistory()
-        self.chat_service = kernel.get_service(AzureOpenAIChatCompletion)
+        self.chat_service = kernel.get_service(AzureChatCompletion)
         
         # Initialize with system prompt
         if system_prompt:
@@ -244,8 +246,8 @@ import asyncio
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.azure_open_ai import AzureOpenAIChatCompletion
-from semantic_kernel.connectors.ai.azure_open_ai.prompt_execution_settings.azure_open_ai_prompt_execution_settings import AzureOpenAIPromptExecutionSettings
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.open_ai_prompt_execution_settings import OpenAIChatPromptExecutionSettings
 from semantic_kernel.contents import ChatHistory
 from agent_base import AgentBase
 from pydantic import BaseModel
@@ -274,7 +276,7 @@ class AzureAIAgent(AgentBase):
         self.kernel = kernel
         self.system_prompt = system_prompt
         self.chat_history = ChatHistory()
-        self.chat_service = kernel.get_service(AzureOpenAIChatCompletion)
+        self.chat_service = kernel.get_service(AzureChatCompletion)
         self.context: Dict[str, Any] = {}
         self.action_history: List[AgentAction] = []
         
@@ -303,7 +305,7 @@ class AzureAIAgent(AgentBase):
             self.chat_history.add_user_message(contextual_message)
             
             # Configure Azure OpenAI execution settings for Azure Government
-            execution_settings = AzureOpenAIPromptExecutionSettings(
+            execution_settings = OpenAIChatPromptExecutionSettings(
                 temperature=0.7,
                 max_tokens=1000,
                 top_p=0.9,
@@ -687,7 +689,7 @@ import logging
 from typing import Tuple
 from dotenv import load_dotenv
 from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.azure_open_ai import AzureOpenAIChatCompletion
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
 # Import our custom modules
 from chat_completion_agent import ChatCompletionAgent
@@ -718,7 +720,7 @@ def create_kernel() -> Kernel:
     kernel = Kernel()
     
     # Add Azure OpenAI chat completion for Azure Government
-    chat_completion = AzureOpenAIChatCompletion(
+    chat_completion = AzureChatCompletion(
         service_id="default",
         deployment_name=deployment_name,
         endpoint=endpoint,

@@ -17,34 +17,33 @@ This comprehensive hands-on lab will guide you through building advanced multi-a
 
 ## Required NuGet Packages
 
-Before starting this multi-agent lab, you'll need to install the following NuGet packages. These packages provide the agent orchestration capabilities beyond the basic Semantic Kernel framework:
+Before starting this multi-agent lab, you'll need to install the following NuGet packages. These packages provide the core agent capabilities and basic multi-agent functionality using stable releases:
+
+### Core Agent Packages (Stable Release)
 
 | Package Name | Version | Purpose |
 |--------------|---------|---------|
 | `Microsoft.SemanticKernel` | Latest | Core Semantic Kernel framework and orchestration engine |
 | `Microsoft.SemanticKernel.Connectors.AzureOpenAI` | Latest | Azure OpenAI integration for chat completion |
 | `Microsoft.SemanticKernel.Agents.Abstractions` | Latest | Agent abstractions and interfaces |
-| `Microsoft.SemanticKernel.Agents.Core` | Latest | Core agent implementation and thread management |
+| `Microsoft.SemanticKernel.Agents.Core` | Latest | Core agent implementation including ChatCompletionAgent |
 | `Microsoft.SemanticKernel.Agents.OpenAI` | Latest | OpenAI-compatible agent implementations |
 | `Microsoft.Extensions.Logging.Console` | Latest | Console logging support for debugging |
 | `Microsoft.Extensions.Configuration` | Latest | Configuration management |
 | `Microsoft.Extensions.Configuration.Json` | Latest | JSON configuration provider |
 
-**Installation Command:**
-```bash
-# Run this single command to install all required packages
-dotnet add package Microsoft.SemanticKernel && \
-dotnet add package Microsoft.SemanticKernel.Connectors.AzureOpenAI && \
-dotnet add package Microsoft.SemanticKernel.Agents.Abstractions && \
-dotnet add package Microsoft.SemanticKernel.Agents.Core && \
-dotnet add package Microsoft.SemanticKernel.Agents.OpenAI && \
-dotnet add package Microsoft.Extensions.Logging.Console && \
-dotnet add package Microsoft.Extensions.Configuration && \
-dotnet add package Microsoft.Extensions.Configuration.Json
-```
+### Optional Advanced Orchestration Packages (Prerelease)
 
-**Alternative Individual Installation:**
+| Package Name | Version | Purpose |
+|--------------|---------|---------|
+| `Microsoft.SemanticKernel.Agents.Orchestration` | Latest (Prerelease) | Advanced orchestration framework for multi-agent coordination |
+| `Microsoft.SemanticKernel.Agents.Runtime.InProcess` | Latest (Prerelease) | In-process runtime for agent orchestration |
+
+> **Note:** The advanced orchestration packages are currently in **experimental/prerelease stage** and are optional. This lab can be completed using only the stable packages with basic multi-agent coordination patterns.
+
+**Basic Installation (Stable Packages Only):**
 ```bash
+# Install stable packages for basic multi-agent functionality
 dotnet add package Microsoft.SemanticKernel
 dotnet add package Microsoft.SemanticKernel.Connectors.AzureOpenAI
 dotnet add package Microsoft.SemanticKernel.Agents.Abstractions
@@ -52,6 +51,21 @@ dotnet add package Microsoft.SemanticKernel.Agents.Core
 dotnet add package Microsoft.SemanticKernel.Agents.OpenAI
 dotnet add package Microsoft.Extensions.Logging.Console
 dotnet add package Microsoft.Extensions.Configuration
+dotnet add package Microsoft.Extensions.Configuration.Json
+```
+
+**Advanced Installation (Including Prerelease Orchestration):**
+```bash
+# Install all packages including experimental orchestration features
+dotnet add package Microsoft.SemanticKernel && \
+dotnet add package Microsoft.SemanticKernel.Connectors.AzureOpenAI && \
+dotnet add package Microsoft.SemanticKernel.Agents.Abstractions && \
+dotnet add package Microsoft.SemanticKernel.Agents.Core && \
+dotnet add package Microsoft.SemanticKernel.Agents.OpenAI && \
+dotnet add package Microsoft.SemanticKernel.Agents.Orchestration --prerelease && \
+dotnet add package Microsoft.SemanticKernel.Agents.Runtime.InProcess --prerelease && \
+dotnet add package Microsoft.Extensions.Logging.Console && \
+dotnet add package Microsoft.Extensions.Configuration && \
 dotnet add package Microsoft.Extensions.Configuration.Json
 ```
 
@@ -69,9 +83,9 @@ dotnet add package Microsoft.Extensions.Configuration.Json
    dotnet new console
    ```
 
-3. **Install the required NuGet packages** using the installation command from the Required NuGet Packages section above.
+3. **Install the required NuGet packages** using the Basic Installation command from the Required NuGet Packages section above (stable packages only).
 
-   > **What you're doing:** These packages provide the advanced agent orchestration capabilities needed for multi-agent scenarios, including conversation thread management and sequential orchestration.
+   > **What you're doing:** These packages provide the core agent capabilities needed for multi-agent scenarios using stable releases. Advanced orchestration features are optional and use prerelease packages.
 
 4. **Create an `appsettings.json` file** for configuration:
 
@@ -481,7 +495,9 @@ public enum ThreadMessageRole
 
 > **What you're doing:** This creates a conversation thread manager that tracks all messages, maintains metadata, and provides a structured way to manage multi-agent conversations with full history and context preservation.
 
-## Step 6: Create Sequential Orchestration
+## Step 6: Create Sequential Orchestration (Custom Implementation)
+
+> **Note:** This step demonstrates a custom sequential orchestration implementation using stable Semantic Kernel agent packages. The official `Microsoft.SemanticKernel.Agents.Orchestration` package is available in prerelease if you prefer to use the framework-provided orchestration patterns.
 
 9. **Create a new file called `SequentialOrchestrator.cs`**:
 
@@ -683,7 +699,7 @@ public class OrchestrationStep
 }
 ```
 
-> **What you're doing:** This creates a sophisticated sequential orchestrator that manages multiple agents in sequence, handles callbacks, supports human-in-the-loop scenarios, and provides detailed tracking of the orchestration process.
+> **What you're doing:** This creates a sophisticated sequential orchestrator that manages multiple agents in sequence, handles callbacks, supports human-in-the-loop scenarios, and provides detailed tracking of the orchestration process. This is a custom implementation using stable Semantic Kernel packages - you could alternatively use the official `Microsoft.SemanticKernel.Agents.Orchestration` prerelease package for similar functionality.
 
 ## Step 7: Complete Application Implementation
 
@@ -1001,26 +1017,28 @@ class Program
 ### What You've Built
 
 **Single Agent Creation:**
-- **Chat Completion Agent:** Basic conversational AI with history management
+- **Chat Completion Agent:** Basic conversational AI with history management using stable Semantic Kernel packages
 - **Azure AI Agent:** Enhanced agent with context management and action tracking
 - Both agents configured specifically for Azure Government Cloud compliance
 
 **Thread Management:**
-- **Conversation Threads:** Structured conversation management with metadata
+- **Conversation Threads:** Structured conversation management with metadata using custom implementation
 - **Message Tracking:** Complete history of all agent and user interactions
 - **Export Capabilities:** JSON export for persistence and analysis
 
 **Multi-Agent Orchestration:**
-- **Sequential Processing:** Agents process messages in a defined order
+- **Sequential Processing:** Agents process messages in a defined order using custom orchestration
 - **Agent Response Callbacks:** Real-time notifications of agent actions
 - **Human Response Functions:** Human-in-the-loop capability for guided orchestration
 - **Error Handling:** Comprehensive error management and recovery
+- **Stable Package Implementation:** Built using stable Semantic Kernel releases without prerelease dependencies
 
 **Advanced Features:**
 - **Context Management:** Agents can maintain and share context information
 - **Action History:** Detailed tracking of all agent actions and decisions
 - **Metadata Management:** Rich metadata support for threads and conversations
 - **Azure Government Integration:** All components designed for government compliance requirements
+- **Custom Orchestration:** Demonstrates building sophisticated multi-agent workflows without experimental packages
 
 ### Development Patterns
 
@@ -1080,10 +1098,15 @@ Multi-Agent Project:
 
 **Common Issues:**
 1. **Agent Creation Failures:** Verify Azure OpenAI deployment names and endpoints
-2. **Orchestration Errors:** Check agent system prompts for clarity and completeness
-3. **Callback Issues:** Ensure async/await patterns are properly implemented
-4. **Thread Management:** Verify proper message ordering and metadata handling
-5. **Azure Government Access:** Confirm subscription has access to required services
+2. **Package Installation Issues:** This lab uses stable packages by default - no prerelease flags needed for core functionality
+3. **Orchestration Errors:** Check agent system prompts for clarity and completeness
+4. **Agent Invocation Issues:** Ensure proper async/await patterns and verify agent initialization
+5. **Thread Management:** Verify proper message ordering and metadata handling in custom thread implementation
+6. **Azure Government Access:** Confirm subscription has access to required services
+
+**Optional Advanced Features:**
+- If using prerelease orchestration packages (`Microsoft.SemanticKernel.Agents.Orchestration`), ensure you use `--prerelease` flag
+- Experimental features may have breaking changes in future releases
 
 **Performance Considerations:**
 - Use appropriate Azure OpenAI model sizes for your use case

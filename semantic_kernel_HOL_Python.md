@@ -21,16 +21,14 @@ Before starting the Python lab, you'll need to install the following Python pack
 
 | Package Name | Version | Purpose |
 |--------------|---------|---------|
-| `semantic-kernel[azure]` | Latest | Core Semantic Kernel with Azure connectors |
-| `azure-identity` | Latest | Azure authentication and credential management |
+| `semantic-kernel[azure]` | 1.27.0+ | Core Semantic Kernel with Azure connectors for Azure OpenAI and other Azure services |
 | `python-dotenv` | Latest | Environment variable management for secure configuration |
-| `aiofiles` | Latest | Asynchronous file operations |
-| `numpy` | Latest | Numerical computing support for embeddings |
+| `aiofiles` | Latest | Asynchronous file operations (required by some SK components) |
 
 **Installation Command:**
 ```bash
 # Run this single command to install all required packages
-pip install semantic-kernel[azure] azure-identity python-dotenv aiofiles numpy
+pip install semantic-kernel[azure] python-dotenv aiofiles
 ```
 
 **Alternative Individual Installation:**
@@ -38,10 +36,8 @@ If you prefer to install packages one by one, use these commands:
 
 ```bash
 pip install semantic-kernel[azure]
-pip install azure-identity
 pip install python-dotenv
 pip install aiofiles
-pip install numpy
 ```
 
 **Requirements File Creation:**
@@ -51,11 +47,14 @@ pip freeze > requirements.txt
 ```
 
 **Package Details:**
-- **`semantic-kernel[azure]`:** Includes the core Semantic Kernel library plus Azure-specific connectors (Azure OpenAI, Azure Cognitive Search, etc.)
-- **`azure-identity`:** Provides authentication capabilities for Azure services
+- **`semantic-kernel[azure]`:** Includes the core Semantic Kernel library plus Azure-specific connectors (Azure OpenAI, Azure AI Inference, etc.). The `[azure]` extra automatically includes all necessary Azure dependencies.
 - **`python-dotenv`:** Enables loading configuration from `.env` files for secure credential management
 - **`aiofiles`:** Supports asynchronous file operations used by some Semantic Kernel components
-- **`numpy`:** Required for vector operations and embedding calculations
+
+**Important Notes:**
+- **Azure Authentication:** Azure OpenAI services support both API key and Microsoft Entra ID authentication. For API key authentication (used in this lab), no additional authentication packages are required.
+- **Latest Version:** Semantic Kernel 1.27.0+ includes the latest Azure OpenAI features and Azure Government support.
+- **Simplified Dependencies:** The `semantic-kernel[azure]` package now includes all necessary Azure service dependencies, eliminating the need for separate `azure-identity` and `numpy` packages for basic functionality.
 
 ## Step 1: Python Project Setup
 
@@ -77,10 +76,10 @@ pip freeze > requirements.txt
 
 3. **Install required packages** using the installation command from the Required Python Packages section above:
    ```bash
-   pip install semantic-kernel[azure] azure-identity python-dotenv aiofiles numpy
+   pip install semantic-kernel[azure] python-dotenv aiofiles
    ```
 
-   > **What you're doing:** The `[azure]` extra ensures you get all Azure-specific connectors needed for Azure Government integration. The other packages provide authentication, configuration management, and supporting functionality.
+   > **What you're doing:** The `[azure]` extra ensures you get all Azure-specific connectors needed for Azure Government integration, including all necessary Azure service dependencies. The other packages provide configuration management and supporting functionality.
 
 4. **Create a `requirements.txt` file** to track dependencies:
    ```bash
@@ -620,9 +619,9 @@ Python Project:
 ### Package Version Compatibility
 
 **Important Notes:**
-- **Semantic Kernel Versioning:** Semantic Kernel is rapidly evolving. Always use the latest stable versions for the most recent features and Azure Government support.
-- **Azure Package Dependencies:** The `semantic-kernel[azure]` package automatically installs compatible versions of Azure SDKs.
-- **Python Version:** Requires Python 3.8 or later. Python 3.10+ is recommended for optimal performance.
+- **Semantic Kernel Versioning:** Semantic Kernel is rapidly evolving. Use version 1.27.0+ for the latest features and Azure Government support.
+- **Azure Package Dependencies:** The `semantic-kernel[azure]` package automatically installs compatible versions of Azure SDKs and required dependencies.
+- **Python Version:** Requires Python 3.10 or later for optimal compatibility with the latest Semantic Kernel features.
 
 **Verifying Installation:**
 After installing packages, verify they're working correctly:
@@ -630,7 +629,7 @@ After installing packages, verify they're working correctly:
 **Python Verification:**
 ```bash
 pip list | grep semantic-kernel
-pip list | grep azure
+pip show semantic-kernel
 ```
 
 ### Troubleshooting Tips
