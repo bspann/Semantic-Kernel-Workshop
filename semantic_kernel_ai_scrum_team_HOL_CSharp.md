@@ -38,8 +38,11 @@ By the end of this lab, you will:
 - **Microsoft.SemanticKernel.Agents.Core**: Agent creation and ChatCompletionAgent functionality
 - **Microsoft.SemanticKernel.Agents.Orchestration**: Group chat orchestration patterns (prerelease)
 - **Microsoft.SemanticKernel.Agents.Runtime.InProcess**: In-process runtime for agent orchestration (prerelease)
+- **Microsoft.SemanticKernel.Connectors.AzureOpenAI**: Azure OpenAI Connector
 - **Microsoft.Extensions.Configuration**: Configuration management
+- **Microsoft.Extensions.Configuration.UserSecrets**:
 - **Microsoft.Extensions.Logging**: Logging support
+- **Microsoft.Extensions.Logging.Console**:
 
 ## Step 1: Project Setup
 
@@ -139,6 +142,7 @@ Create `Models/ScrumDeliverables.cs`:
 
 ```csharp
 using System.ComponentModel;
+using System.Text;
 
 namespace AIScrumTeam.Models
 {
@@ -411,6 +415,7 @@ Create `Managers/ScrumGroupChatManager.cs`:
 
 ```csharp
 #pragma warning disable SKEXP0110 // Semantic Kernel Agents
+#pragma warning disable SKEXP0001 // Semantic Kernel Chat History
 
 using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.Agents.Orchestration.GroupChat;
@@ -734,41 +739,350 @@ namespace AIScrumTeam
 }
 ```
 
-## Step 7: Add Missing Usings
+### Alternative: Interactive Mode with Human Input
 
-Add these using statements to the top of relevant files:
+For a more interactive experience, you can modify the Program.cs to accept requirements from the user at runtime. Here are several approaches:
 
-For `Models/ScrumDeliverables.cs`:
+#### Option 1: Console Input
 
-```csharp
-using System.Text;
-```
-
-For `Managers/ScrumGroupChatManager.cs`:
+Replace the sample requirements section with interactive prompts:
 
 ```csharp
-#pragma warning disable SKEXP0110 // Semantic Kernel Agents
+// Interactive requirements gathering
+Console.WriteLine("🤖 AI Scrum Team - Interactive Requirements Gathering");
+Console.WriteLine("=" * 60);
+Console.WriteLine();
 
-using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.Agents;
-using Microsoft.SemanticKernel.Agents.Orchestration.GroupChat;
-using Microsoft.SemanticKernel.ChatCompletion;
+// Get project name
+Console.Write("📋 Enter the project name: ");
+var projectName = Console.ReadLine();
+
+Console.WriteLine($"\n🎯 Let's gather requirements for: {projectName}");
+Console.WriteLine("Please describe what you want to build. Include features, functionality, and any specific requirements.");
+Console.WriteLine("When finished, press Enter twice to continue.\n");
+
+// Multi-line input for requirements
+var requirements = new StringBuilder();
+string line;
+int emptyLineCount = 0;
+
+Console.WriteLine("💡 Tip: Press Enter twice when you're done entering requirements");
+Console.Write("Requirements: ");
+
+while (emptyLineCount < 2)
+{
+    line = Console.ReadLine();
+    
+    if (string.IsNullOrWhiteSpace(line))
+    {
+        emptyLineCount++;
+        if (emptyLineCount == 1)
+        {
+            Console.WriteLine("Press Enter again to finish, or continue typing...");
+        }
+    }
+    else
+    {
+        emptyLineCount = 0;
+        requirements.AppendLine(line);
+    }
+}
+
+var userRequirements = requirements.ToString().Trim();
+
+if (string.IsNullOrWhiteSpace(userRequirements))
+{
+    Console.WriteLine("⚠️ No requirements provided. Using sample requirements...");
+    userRequirements = """
+        We need a comprehensive e-learning platform that supports:
+        - Student enrollment and progress tracking
+        - Instructor course creation and management
+        - Interactive video lessons with embedded quizzes
+        - Discussion forums for each course
+        - Mobile application for offline learning
+        - Integration with popular payment gateways
+        - Multi-language support for global reach
+        - Advanced analytics dashboard for learning outcomes
+        - Certificate generation upon course completion
+        - Real-time notifications for assignments and announcements
+        """;
+}
+
+Console.WriteLine($"\n📋 Processing requirements for: {projectName}");
+Console.WriteLine("🔄 AI Scrum Team is analyzing your requirements...\n");
 ```
 
-For `Services/ScrumTeamOrchestrator.cs`:
+#### Option 2: File Input with User Selection
+
+Add file input capabilities:
 
 ```csharp
-#pragma warning disable SKEXP0110 // Semantic Kernel Agents
+// File or interactive input selection
+Console.WriteLine("🤖 AI Scrum Team - Requirements Input Options");
+Console.WriteLine("=" * 50);
+Console.WriteLine("1. Enter requirements interactively");
+Console.WriteLine("2. Load requirements from file");
+Console.WriteLine("3. Use sample requirements");
+Console.Write("\nSelect option (1-3): ");
 
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Agents;
-using Microsoft.SemanticKernel.Agents.Orchestration;
-using Microsoft.SemanticKernel.Agents.Orchestration.GroupChat;
-using Microsoft.SemanticKernel.Agents.Runtime.InProcess;
-using Microsoft.SemanticKernel.ChatCompletion;
+var option = Console.ReadKey().KeyChar;
+Console.WriteLine("\n");
+
+string userRequirements = string.Empty;
+string projectName = "AI Scrum Project";
+
+switch (option)
+{
+    case '1':
+        // Interactive input (use code from Option 1 above)
+        Console.Write("📋 Enter the project name: ");
+        projectName = Console.ReadLine() ?? "Interactive Project";
+        
+        Console.WriteLine("\nEnter your requirements (press Enter twice when done):");
+        var requirements = new StringBuilder();
+        string line;
+        int emptyLineCount = 0;
+
+        while (emptyLineCount < 2)
+        {
+            line = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(line))
+                emptyLineCount++;
+            else
+            {
+                emptyLineCount = 0;
+                requirements.AppendLine(line);
+            }
+        }
+        userRequirements = requirements.ToString().Trim();
+        break;
+
+    case '2':
+        // File input
+        Console.Write("📁 Enter the path to your requirements file: ");
+        var filePath = Console.ReadLine();
+        
+        if (File.Exists(filePath))
+        {
+            userRequirements = await File.ReadAllTextAsync(filePath);
+            projectName = Path.GetFileNameWithoutExtension(filePath);
+            Console.WriteLine($"✅ Loaded requirements from: {filePath}");
+        }
+        else
+        {
+            Console.WriteLine("❌ File not found. Using sample requirements...");
+            goto case '3';
+        }
+        break;
+
+    case '3':
+    default:
+        // Sample requirements
+        projectName = "E-Learning Platform";
+        userRequirements = """
+            We need a comprehensive e-learning platform that supports:
+            - Student enrollment and progress tracking
+            - Instructor course creation and management
+            - Interactive video lessons with embedded quizzes
+            - Discussion forums for each course
+            - Mobile application for offline learning
+            - Integration with popular payment gateways
+            - Multi-language support for global reach
+            - Advanced analytics dashboard for learning outcomes
+            - Certificate generation upon course completion
+            - Real-time notifications for assignments and announcements
+            """;
+        Console.WriteLine("📋 Using sample e-learning platform requirements");
+        break;
+}
+
+Console.WriteLine($"\n🎯 Project: {projectName}");
+Console.WriteLine("🔄 AI Scrum Team is processing your requirements...\n");
 ```
 
-## Step 8: Build and Test
+#### Option 3: Command Line Arguments
+
+Support command line arguments for automation:
+
+```csharp
+static async Task Main(string[] args)
+{
+    // ... configuration setup ...
+
+    try
+    {
+        logger.LogInformation("🚀 AI Scrum Team Application Starting...");
+        
+        var orchestrator = serviceProvider.GetRequiredService<ScrumTeamOrchestrator>();
+        
+        string requirements;
+        string projectName = "AI Scrum Project";
+        
+        // Check command line arguments
+        if (args.Length > 0)
+        {
+            if (args[0] == "--file" && args.Length > 1)
+            {
+                // Load from file: dotnet run --file requirements.txt
+                var filePath = args[1];
+                if (File.Exists(filePath))
+                {
+                    requirements = await File.ReadAllTextAsync(filePath);
+                    projectName = Path.GetFileNameWithoutExtension(filePath);
+                    logger.LogInformation($"📁 Loaded requirements from: {filePath}");
+                }
+                else
+                {
+                    Console.WriteLine($"❌ File not found: {filePath}");
+                    return;
+                }
+            }
+            else if (args[0] == "--interactive")
+            {
+                // Interactive mode: dotnet run --interactive
+                requirements = GetInteractiveRequirements(out projectName);
+            }
+            else
+            {
+                // Direct input: dotnet run "Build a chat application with real-time messaging"
+                requirements = string.Join(" ", args);
+                projectName = "Command Line Project";
+                logger.LogInformation("📝 Using command line requirements");
+            }
+        }
+        else
+        {
+            // No arguments - default to interactive mode
+            requirements = GetInteractiveRequirements(out projectName);
+        }
+
+        // Proceed with processing...
+        logger.LogInformation($"📋 Processing requirements for: {projectName}");
+        Console.WriteLine($"Requirements Preview: {requirements[..Math.Min(100, requirements.Length)]}...");
+        
+        var deliverables = await orchestrator.ProcessRequirementsAsync(requirements);
+        
+        // Save with project-specific filename
+        var safeProjectName = string.Join("_", projectName.Split(Path.GetInvalidFileNameChars()));
+        var outputPath = Path.Combine(Directory.GetCurrentDirectory(), $"{safeProjectName}_deliverables.md");
+        await orchestrator.SaveDeliverablesAsync(deliverables, outputPath);
+        
+        logger.LogInformation("✅ Application completed successfully!");
+        Console.WriteLine($"\n🎉 Deliverables saved to: {outputPath}");
+        Console.WriteLine("\nPress any key to exit...");
+        Console.ReadKey();
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Application failed");
+        Console.WriteLine($"Error: {ex.Message}");
+        Environment.Exit(1);
+    }
+}
+
+private static string GetInteractiveRequirements(out string projectName)
+{
+    Console.WriteLine("🤖 AI Scrum Team - Interactive Mode");
+    Console.WriteLine("=" * 40);
+    
+    Console.Write("📋 Project Name: ");
+    projectName = Console.ReadLine() ?? "Interactive Project";
+    
+    Console.WriteLine("\n💡 Describe your project requirements:");
+    Console.WriteLine("Include features, functionality, integrations, and constraints.");
+    Console.WriteLine("Press Enter twice when finished.\n");
+    
+    var requirements = new StringBuilder();
+    string line;
+    int emptyLineCount = 0;
+
+    while (emptyLineCount < 2)
+    {
+        line = Console.ReadLine();
+        
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            emptyLineCount++;
+        }
+        else
+        {
+            emptyLineCount = 0;
+            requirements.AppendLine(line);
+        }
+    }
+
+    var result = requirements.ToString().Trim();
+    
+    if (string.IsNullOrWhiteSpace(result))
+    {
+        Console.WriteLine("⚠️ No requirements entered. Please try again.");
+        return GetInteractiveRequirements(out projectName);
+    }
+    
+    return result;
+}
+```
+
+#### Usage Examples
+
+With these modifications, users can run the application in various ways:
+
+```bash
+# Interactive mode (default)
+dotnet run
+
+# Interactive mode (explicit)
+dotnet run --interactive
+
+# Load from file
+dotnet run --file my-requirements.txt
+
+# Direct command line input
+dotnet run "Build a social media platform with user authentication, posts, comments, and real-time notifications"
+```
+
+#### Creating a Requirements Template
+
+You can also provide a template file for users:
+
+Create `requirements-template.txt`:
+
+```text
+Project Name: [Enter your project name]
+
+Project Overview:
+[Describe what you want to build in 2-3 sentences]
+
+Core Features:
+- [Feature 1]
+- [Feature 2]
+- [Feature 3]
+
+User Types:
+- [User type 1: description]
+- [User type 2: description]
+
+Technical Requirements:
+- [Technology preference, if any]
+- [Performance requirements]
+- [Security requirements]
+
+Integration Requirements:
+- [External services to integrate]
+- [APIs to consume/provide]
+
+Constraints:
+- [Budget constraints]
+- [Timeline constraints]
+- [Technical constraints]
+
+Success Criteria:
+- [How will you measure success?]
+```
+
+
+
+## Step 7: Build and Test
 
 ### Build the Application
 
@@ -836,7 +1150,7 @@ namespace AIScrumTeam
 }
 ```
 
-## Step 9: Advanced Features
+## Step 8: Advanced Features
 
 ### Adding Validation and Quality Checks
 
