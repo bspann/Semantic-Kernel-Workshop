@@ -1467,7 +1467,133 @@ When you run the AI Scrum Team, you'll get comprehensive deliverables including:
    }
    ```
 
-4. **NuGet Package Conflicts**
+4. **"Orchestration did not complete within the allowed duration" Timeout Error**
+
+   This error occurs when the AI agents don't complete their workflow within the timeout period. Common causes and solutions:
+
+   **a) QA Agent not signaling completion properly:**
+   ```csharp
+   // Ensure QA Agent instructions include clear completion signal
+   Instructions = """
+       // ... other instructions ...
+       
+       After completing all test cases, end your response with:
+       "Test cases complete"
+       
+       This signals that your testing analysis is finished.
+       """,
+   ```
+
+   **b) Increase timeout duration and add better logging:**
+   ```csharp
+   public async Task<ScrumDeliverables> ProcessRequirementsAsync(
+       string requirements, 
+       CancellationToken cancellationToken = default)
+   {
+       // ... existing code ...
+       
+       try
+       {
+           // Execute with longer timeout and better monitoring
+           var result = await orchestration.InvokeAsync(requirements, runtime);
+           
+           // Increase timeout to 20 minutes and add cancellation token support
+           using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+           cts.CancelAfter(TimeSpan.FromMinutes(20));
+           
+           var finalOutput = await result.GetValueAsync(TimeSpan.FromMinutes(20), cts.Token);
+           
+           _logger.LogInformation("✅ Orchestration completed successfully");
+           
+           // ... rest of the method ...
+       }
+       catch (TimeoutException ex)
+       {
+           _logger.LogError("⏰ Orchestration timed out. Last conversation state:");
+           
+           // Log current conversation state for debugging
+           foreach (var message in conversationHistory.TakeLast(5))
+           {
+               _logger.LogError($"  {message.AuthorName}: {message.Content?[..Math.Min(200, message.Content?.Length ?? 0)]}...");
+           }
+           
+           throw new InvalidOperationException(
+               "AI Scrum Team workflow timed out. This may indicate agents are stuck in a loop or termination condition not met.", ex);
+       }
+   }
+   ```
+
+   **c) Improve the Group Chat Manager termination logic:**
+   ```csharp
+   public override ValueTask<GroupChatManagerResult<bool>> ShouldTerminate(ChatHistory history, CancellationToken cancellationToken = default)
+   {
+       // Multiple termination conditions for robustness
+       
+       // 1. Check if QA has completed (primary condition)
+       var qaMessages = history
+           .Where(m => m.AuthorName == "QATester")
+           .Select(m => m.Content)
+           .ToList();
+           
+       var isQAComplete = qaMessages.Any(content => 
+           content != null && content.Contains("Test cases complete", StringComparison.OrdinalIgnoreCase));
+       
+       // 2. Check for maximum conversation length (safety condition)
+       var maxMessages = 50; // Prevent infinite loops
+       var isMaxReached = history.Count >= maxMessages;
+       
+       // 3. Check if all agents have responded at least once (minimum progress condition)
+       var agentNames = new[] { "ProductOwner", "BusinessAnalyst", "SolutionArchitect", "QATester" };
+       var respondedAgents = history
+           .Where(m => agentNames.Contains(m.AuthorName))
+           .Select(m => m.AuthorName)
+           .Distinct()
+           .Count();
+       
+       var allAgentsResponded = respondedAgents == agentNames.Length;
+       
+       // 4. Check for stuck agent (same agent responding multiple times in a row)
+       var lastFiveMessages = history.TakeLast(5).ToList();
+       var isStuck = lastFiveMessages.Count >= 5 && 
+                     lastFiveMessages.All(m => m.AuthorName == lastFiveMessages.First().AuthorName);
+       
+       var shouldTerminate = isQAComplete || isMaxReached || isStuck;
+       
+       var reason = shouldTerminate switch
+       {
+           true when isQAComplete => "QA has completed test cases",
+           true when isMaxReached => $"Maximum message limit reached ({maxMessages})",
+           true when isStuck => "Agent appears to be stuck in a loop",
+           _ => "Workflow continuing"
+       };
+       
+       _logger.LogInformation($"Termination check: {reason} (Messages: {history.Count}, Agents responded: {respondedAgents}/4)");
+       
+       return ValueTask.FromResult(new GroupChatManagerResult<bool>(shouldTerminate) { Reason = reason });
+   }
+   ```
+
+   **d) Add conversation monitoring:**
+   ```csharp
+   // Enhanced response callback with monitoring
+   ValueTask ResponseCallback(ChatMessageContent response)
+   {
+       conversationHistory.Add(response);
+       
+       // Log each response for monitoring
+       _logger.LogInformation($"🗣️ {response.AuthorName}: {response.Content?[..Math.Min(150, response.Content?.Length ?? 0)]}...");
+       
+       // Check for potential issues
+       if (conversationHistory.Count > 30)
+       {
+           _logger.LogWarning($"⚠️ Conversation has {conversationHistory.Count} messages. Consider reviewing termination logic.");
+       }
+       
+       return ValueTask.CompletedTask;
+   }
+   ```
+
+5. **NuGet Package Conflicts**
 ```bash
 dotnet clean
 dotnet restore
@@ -1503,6 +1629,207 @@ Enable detailed logging in `appsettings.json`:
       "AIScrumTeam": "Debug"
     }
   }
+}
+```
+
+### Monitoring Orchestration Progress
+
+To debug timeout issues, add real-time monitoring to your ScrumTeamOrchestrator:
+
+```csharp
+public async Task<ScrumDeliverables> ProcessRequirementsAsync(
+    string requirements, 
+    CancellationToken cancellationToken = default)
+{
+    _logger.LogInformation("🚀 Starting AI Scrum Team workflow...");
+    
+    // Create agents with enhanced logging
+    var agents = new Agent[]
+    {
+        ProductOwnerAgent.Create(_kernel),
+        BusinessAnalystAgent.Create(_kernel),
+        SolutionArchitectAgent.Create(_kernel),
+        QATestAgent.Create(_kernel)
+    };
+    
+    _logger.LogInformation($"✅ Created {agents.Length} agents");
+    
+    // Create conversation history with monitoring
+    var conversationHistory = new ChatHistory();
+    var agentResponseCount = new Dictionary<string, int>();
+    var lastActivityTime = DateTime.UtcNow;
+    
+    // Enhanced response callback with detailed monitoring
+    ValueTask ResponseCallback(ChatMessageContent response)
+    {
+        conversationHistory.Add(response);
+        lastActivityTime = DateTime.UtcNow;
+        
+        // Track agent response counts
+        if (!string.IsNullOrEmpty(response.AuthorName))
+        {
+            agentResponseCount[response.AuthorName] = agentResponseCount.GetValueOrDefault(response.AuthorName) + 1;
+        }
+        
+        // Log detailed response info
+        var preview = response.Content?[..Math.Min(150, response.Content?.Length ?? 0)] ?? "";
+        _logger.LogInformation($"🗣️ {response.AuthorName} (#{agentResponseCount.GetValueOrDefault(response.AuthorName)}): {preview}...");
+        
+        // Log current state
+        var totalMessages = conversationHistory.Count;
+        var uniqueAgents = agentResponseCount.Keys.Count;
+        _logger.LogInformation($"📊 Progress: {totalMessages} messages, {uniqueAgents} agents active");
+        
+        // Check for completion signals
+        if (response.AuthorName == "QATester" && 
+            response.Content?.Contains("Test cases complete", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _logger.LogInformation("🎯 QA completion signal detected!");
+        }
+        
+        // Warn if conversation is getting long
+        if (totalMessages > 20)
+        {
+            _logger.LogWarning($"⚠️ Long conversation detected ({totalMessages} messages). Check termination logic.");
+        }
+        
+        return ValueTask.CompletedTask;
+    }
+    
+    // Create manager with enhanced logging
+    var manager = new ScrumGroupChatManager(_loggerFactory.CreateLogger<ScrumGroupChatManager>());
+    
+    // Create orchestration
+    var orchestration = new GroupChatOrchestration(manager, agents)
+    {
+        ResponseCallback = ResponseCallback
+    };
+    
+    // Create runtime
+    var runtime = new InProcessRuntime();
+    await runtime.StartAsync();
+    
+    _logger.LogInformation("🔄 Processing requirements through AI Scrum Team...");
+    
+    var deliverables = new ScrumDeliverables();
+    
+    try
+    {
+        // Start orchestration
+        var result = await orchestration.InvokeAsync(requirements, runtime);
+        
+        // Monitor progress with timeout
+        var timeout = TimeSpan.FromMinutes(20);
+        _logger.LogInformation($"⏱️ Orchestration started with {timeout.TotalMinutes} minute timeout");
+        
+        // Create cancellation token for timeout
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+        
+        // Monitor progress in background
+        var progressTask = MonitorProgressAsync(conversationHistory, agentResponseCount, cts.Token);
+        
+        // Wait for completion
+        var finalOutput = await result.GetValueAsync(timeout, cts.Token);
+        
+        _logger.LogInformation("✅ Orchestration completed successfully");
+        
+        // Stop progress monitoring
+        cts.Cancel();
+        
+        // Process results...
+        foreach (var message in conversationHistory)
+        {
+            // ... existing message processing logic ...
+        }
+        
+        _logger.LogInformation("✅ QA has completed all test cases. Workflow finished.");
+    }
+    catch (TimeoutException ex)
+    {
+        _logger.LogError("⏰ Orchestration timed out!");
+        _logger.LogError($"📊 Final state: {conversationHistory.Count} messages");
+        
+        foreach (var kvp in agentResponseCount)
+        {
+            _logger.LogError($"  {kvp.Key}: {kvp.Value} responses");
+        }
+        
+        // Log last few messages for debugging
+        _logger.LogError("🔍 Last 5 messages:");
+        foreach (var message in conversationHistory.TakeLast(5))
+        {
+            var preview = message.Content?[..Math.Min(200, message.Content?.Length ?? 0)] ?? "";
+            _logger.LogError($"  {message.AuthorName}: {preview}...");
+        }
+        
+        throw new InvalidOperationException(
+            $"AI Scrum Team workflow timed out after {timeout.TotalMinutes} minutes. " +
+            $"Last activity: {DateTime.UtcNow.Subtract(lastActivityTime).TotalSeconds:F1} seconds ago. " +
+            $"Total messages: {conversationHistory.Count}. " +
+            "This may indicate agents are stuck in a loop or termination condition not met.", ex);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "❌ Error during AI Scrum Team execution");
+        throw;
+    }
+    finally
+    {
+        await runtime.RunUntilIdleAsync();
+    }
+    
+    _logger.LogInformation("🎉 AI Scrum Team workflow completed successfully!");
+    return deliverables;
+}
+
+private async Task MonitorProgressAsync(
+    ChatHistory conversationHistory, 
+    Dictionary<string, int> agentResponseCount, 
+    CancellationToken cancellationToken)
+{
+    var lastCount = 0;
+    var stuckCheckCount = 0;
+    
+    try
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(30000, cancellationToken); // Check every 30 seconds
+            
+            var currentCount = conversationHistory.Count;
+            
+            if (currentCount == lastCount)
+            {
+                stuckCheckCount++;
+                _logger.LogWarning($"⚠️ No progress in 30 seconds (check #{stuckCheckCount})");
+                
+                if (stuckCheckCount >= 3) // 90 seconds without progress
+                {
+                    _logger.LogError("🚨 No progress for 90+ seconds - possible deadlock!");
+                    
+                    // Log current state
+                    var lastMessage = conversationHistory.LastOrDefault();
+                    if (lastMessage != null)
+                    {
+                        _logger.LogError($"Last message from: {lastMessage.AuthorName}");
+                        _logger.LogError($"Message preview: {lastMessage.Content?[..Math.Min(100, lastMessage.Content?.Length ?? 0)]}...");
+                    }
+                }
+            }
+            else
+            {
+                stuckCheckCount = 0;
+                _logger.LogInformation($"📈 Progress: {currentCount} total messages");
+            }
+            
+            lastCount = currentCount;
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Expected when cancellation is requested
+    }
 }
 ```
 
