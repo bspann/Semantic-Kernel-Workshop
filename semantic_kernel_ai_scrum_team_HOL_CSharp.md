@@ -56,6 +56,9 @@ cd AIScrumTeam
 # Core Semantic Kernel
 dotnet add package Microsoft.SemanticKernel
 
+# Azure OpenAI Connector (required for AddAzureOpenAIChatCompletion)
+dotnet add package Microsoft.SemanticKernel.Connectors.AzureOpenAI
+
 # Agent packages (current structure)
 dotnet add package Microsoft.SemanticKernel.Agents.Core
 dotnet add package Microsoft.SemanticKernel.Agents.Orchestration --prerelease
@@ -67,6 +70,25 @@ dotnet add package Microsoft.Extensions.Configuration.UserSecrets
 dotnet add package Microsoft.Extensions.Logging
 dotnet add package Microsoft.Extensions.Logging.Console
 ```
+
+### Suppress Experimental Warnings
+
+Since the Agent Framework and Orchestration features are experimental, add the following to your `.csproj` file to suppress compiler warnings:
+
+```xml
+<PropertyGroup>
+  <NoWarn>$(NoWarn);SKEXP0110</NoWarn>
+</PropertyGroup>
+```
+
+**Note**: `SKEXP0110` covers Semantic Kernel Agents experimental features. You can also use pragma directives in individual files if preferred.
+
+### Important Notes About Experimental Features
+
+- **Breaking Changes**: Experimental features may introduce breaking changes without notice
+- **Limited Support**: Microsoft provides limited support for experimental features  
+- **Production Use**: Consider carefully before using experimental features in production
+- **Documentation**: Keep up to date with the [Semantic Kernel release notes](https://github.com/microsoft/semantic-kernel/releases) for changes
 
 ### Project Structure
 
@@ -176,7 +198,7 @@ Create `Agents/ProductOwnerAgent.cs`:
 
 ```csharp
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Agents.Core;
+using Microsoft.SemanticKernel.Agents;
 
 namespace AIScrumTeam.Agents
 {
@@ -220,7 +242,7 @@ Create `Agents/BusinessAnalystAgent.cs`:
 
 ```csharp
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Agents.Core;
+using Microsoft.SemanticKernel.Agents;
 
 namespace AIScrumTeam.Agents
 {
@@ -267,7 +289,7 @@ Create `Agents/SolutionArchitectAgent.cs`:
 
 ```csharp
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Agents.Core;
+using Microsoft.SemanticKernel.Agents;
 
 namespace AIScrumTeam.Agents
 {
@@ -329,7 +351,7 @@ Create `Agents/QATestAgent.cs`:
 
 ```csharp
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Agents.Core;
+using Microsoft.SemanticKernel.Agents;
 
 namespace AIScrumTeam.Agents
 {
@@ -369,8 +391,7 @@ namespace AIScrumTeam.Agents
                     When [action is performed]
                     Then [expected outcome]
                     And [additional verification]
-                    ```
-                    
+
                     After completing all test cases, end your response with:
                     "Test cases complete"
                     
@@ -389,7 +410,9 @@ namespace AIScrumTeam.Agents
 Create `Managers/ScrumGroupChatManager.cs`:
 
 ```csharp
-using Microsoft.SemanticKernel.Agents.Core;
+#pragma warning disable SKEXP0110 // Semantic Kernel Agents
+
+using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.Agents.Orchestration.GroupChat;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.Extensions.Logging;
@@ -407,10 +430,7 @@ namespace AIScrumTeam.Managers
             MaximumInvocationCount = 15;
         }
 
-        protected override async Task<string?> SelectNextAgentAsync(
-            IReadOnlyList<IChatCompletionAgent> agents, 
-            IReadOnlyList<ChatMessageContent> history, 
-            CancellationToken cancellationToken = default)
+        public override ValueTask<GroupChatManagerResult<string>> SelectNextAgent(ChatHistory history, GroupChatTeam team, CancellationToken cancellationToken = default)
         {
             var lastMessage = history.LastOrDefault();
             var lastAgentName = lastMessage?.AuthorName;
@@ -429,13 +449,10 @@ namespace AIScrumTeam.Managers
             };
             
             _logger.LogInformation($"Selected next agent: {nextAgentName}");
-            return nextAgentName;
+            return ValueTask.FromResult(new GroupChatManagerResult<string>(nextAgentName));
         }
 
-        protected override async Task<bool> ShouldTerminateAsync(
-            IReadOnlyList<IChatCompletionAgent> agents,
-            IReadOnlyList<ChatMessageContent> history, 
-            CancellationToken cancellationToken = default)
+        public override ValueTask<GroupChatManagerResult<bool>> ShouldTerminate(ChatHistory history, CancellationToken cancellationToken = default)
         {
             // Check if QA has completed their work
             var qaMessages = history
@@ -451,7 +468,24 @@ namespace AIScrumTeam.Managers
                 _logger.LogInformation("QA has completed test cases. Terminating conversation.");
             }
             
-            return isComplete;
+            return ValueTask.FromResult(new GroupChatManagerResult<bool>(isComplete));
+        }
+
+        public override ValueTask<GroupChatManagerResult<bool>> ShouldRequestUserInput(ChatHistory history, CancellationToken cancellationToken = default)
+        {
+            return ValueTask.FromResult(new GroupChatManagerResult<bool>(false) 
+            { 
+                Reason = "The AI scrum team does not request user input during internal deliberations." 
+            });
+        }
+
+        public override ValueTask<GroupChatManagerResult<string>> FilterResults(ChatHistory history, CancellationToken cancellationToken = default)
+        {
+            // Create a summary of the scrum team's work
+            var messages = history.ToList();
+            var summary = "Scrum Team has completed their analysis and recommendations.";
+            
+            return ValueTask.FromResult(new GroupChatManagerResult<string>(summary));
         }
     }
 }
@@ -462,12 +496,16 @@ namespace AIScrumTeam.Managers
 Create `Services/ScrumTeamOrchestrator.cs`:
 
 ```csharp
+#pragma warning disable SKEXP0110 // Semantic Kernel Agents
+#pragma warning disable SKEXP0001 // Semantic Kernel Chat History 
+
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Agents.Core;
+using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.Agents.Orchestration;
 using Microsoft.SemanticKernel.Agents.Orchestration.GroupChat;
 using Microsoft.SemanticKernel.Agents.Runtime.InProcess;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.AzureOpenAI; // Required for AddAzureOpenAIChatCompletion
 using AIScrumTeam.Agents;
 using AIScrumTeam.Managers;
 using AIScrumTeam.Models;
@@ -478,12 +516,14 @@ namespace AIScrumTeam.Services
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<ScrumTeamOrchestrator> _logger;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly Kernel _kernel;
 
-        public ScrumTeamOrchestrator(IConfiguration configuration, ILogger<ScrumTeamOrchestrator> logger)
+        public ScrumTeamOrchestrator(IConfiguration configuration, ILogger<ScrumTeamOrchestrator> logger, ILoggerFactory loggerFactory)
         {
             _configuration = configuration;
             _logger = logger;
+            _loggerFactory = loggerFactory;
             _kernel = CreateKernel();
         }
 
@@ -507,7 +547,7 @@ namespace AIScrumTeam.Services
             _logger.LogInformation("🚀 Starting AI Scrum Team workflow...");
             
             // Create agents
-            var agents = new ChatCompletionAgent[]
+            var agents = new Agent[]
             {
                 ProductOwnerAgent.Create(_kernel),
                 BusinessAnalystAgent.Create(_kernel),
@@ -517,13 +557,26 @@ namespace AIScrumTeam.Services
             
             _logger.LogInformation($"✅ Created {agents.Length} agents");
             
+            // Create conversation history to capture agent responses
+            var conversationHistory = new ChatHistory();
+            
+            // Create response callback to capture agent messages
+            ValueTask ResponseCallback(ChatMessageContent response)
+            {
+                conversationHistory.Add(response);
+                return ValueTask.CompletedTask;
+            }
+            
             // Create group chat manager
             var manager = new ScrumGroupChatManager(
-                _logger.CreateLogger<ScrumGroupChatManager>()
+                _loggerFactory.CreateLogger<ScrumGroupChatManager>()
             );
             
-            // Create group chat orchestration
-            var orchestration = new GroupChatOrchestration(manager, agents);
+            // Create group chat orchestration with response callback
+            var orchestration = new GroupChatOrchestration(manager, agents)
+            {
+                ResponseCallback = ResponseCallback
+            };
             
             // Create runtime
             var runtime = new InProcessRuntime();
@@ -539,11 +592,8 @@ namespace AIScrumTeam.Services
                 var result = await orchestration.InvokeAsync(requirements, runtime);
                 var finalOutput = await result.GetValueAsync(TimeSpan.FromMinutes(10));
                 
-                // Parse the conversation history to extract deliverables
-                var history = result.ConversationHistory;
-                
-                // Extract deliverables by agent
-                foreach (var message in history)
+                // Extract deliverables from conversation history
+                foreach (var message in conversationHistory)
                 {
                     if (string.IsNullOrEmpty(message.AuthorName) || message.AuthorName == "user")
                         continue;
@@ -697,8 +747,10 @@ using System.Text;
 For `Managers/ScrumGroupChatManager.cs`:
 
 ```csharp
+#pragma warning disable SKEXP0110 // Semantic Kernel Agents
+
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.Agents.Core;
+using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.Agents.Orchestration.GroupChat;
 using Microsoft.SemanticKernel.ChatCompletion;
 ```
@@ -706,8 +758,10 @@ using Microsoft.SemanticKernel.ChatCompletion;
 For `Services/ScrumTeamOrchestrator.cs`:
 
 ```csharp
+#pragma warning disable SKEXP0110 // Semantic Kernel Agents
+
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Agents.Core;
+using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.Agents.Orchestration;
 using Microsoft.SemanticKernel.Agents.Orchestration.GroupChat;
 using Microsoft.SemanticKernel.Agents.Runtime.InProcess;
@@ -1035,14 +1089,78 @@ When you run the AI Scrum Team, you'll get comprehensive deliverables including:
 
 ### Common Issues
 
-1. **NuGet Package Conflicts**
+1. **"'IKernelBuilder' does not contain a definition for 'AddAzureOpenAIChatCompletion'" Error**
+
+   This error occurs when the required NuGet package or using statement is missing. To fix:
+
+   ```bash
+   # Install the Azure OpenAI connector package
+   dotnet add package Microsoft.SemanticKernel.Connectors.AzureOpenAI
+   ```
+
+   Add the using statement to your file:
+   ```csharp
+   using Microsoft.SemanticKernel.Connectors.AzureOpenAI;
+   ```
+
+   The `AddAzureOpenAIChatCompletion` method is an extension method provided by the AzureOpenAI connector package.
+
+2. **"'ILogger&lt;T&gt;' does not contain a definition for 'CreateLogger'" Error**
+
+   This error occurs because `ILogger<T>` doesn't have a `CreateLogger` method. You need `ILoggerFactory` instead. To fix:
+
+   ```csharp
+   // Add ILoggerFactory to the constructor
+   public ScrumTeamOrchestrator(IConfiguration configuration, ILogger<ScrumTeamOrchestrator> logger, ILoggerFactory loggerFactory)
+   {
+       _loggerFactory = loggerFactory;
+       // ... other code
+   }
+
+   // Use ILoggerFactory to create loggers
+   var manager = new ScrumGroupChatManager(
+       _loggerFactory.CreateLogger<ScrumGroupChatManager>()
+   );
+   ```
+
+   The `ILoggerFactory` is automatically registered by the `AddLogging()` call in Program.cs.
+
+3. **"'OrchestrationResult&lt;string&gt;' does not contain a definition for 'ConversationHistory'" Error**
+
+   This error occurs because the new GroupChatOrchestration pattern uses a `ResponseCallback` to capture conversation history instead of a property on the result. To fix:
+
+   ```csharp
+   // Create conversation history to capture agent responses
+   var conversationHistory = new ChatHistory();
+   
+   // Create response callback to capture agent messages
+   ValueTask ResponseCallback(ChatMessageContent response)
+   {
+       conversationHistory.Add(response);
+       return ValueTask.CompletedTask;
+   }
+   
+   // Create orchestration with response callback
+   var orchestration = new GroupChatOrchestration(manager, agents)
+   {
+       ResponseCallback = ResponseCallback
+   };
+   
+   // After execution, use conversationHistory instead of result.ConversationHistory
+   foreach (var message in conversationHistory)
+   {
+       // Process messages...
+   }
+   ```
+
+4. **NuGet Package Conflicts**
 ```bash
 dotnet clean
 dotnet restore
 dotnet build
 ```
 
-2. **Azure OpenAI Connection Issues**
+3. **Azure OpenAI Connection Issues**
 ```csharp
 // Test connection in Program.cs
 var testKernel = Kernel.CreateBuilder()
@@ -1053,7 +1171,7 @@ var chatService = testKernel.GetRequiredService<IChatCompletionService>();
 Console.WriteLine("✅ Azure OpenAI connection successful");
 ```
 
-3. **Configuration Problems**
+4. **Configuration Problems**
 - Verify appsettings.json format
 - Check environment variables
 - Validate Azure OpenAI credentials
