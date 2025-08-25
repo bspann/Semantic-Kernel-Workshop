@@ -1,5 +1,20 @@
 # HOL - AI Scrum Team with Semantic Kernel (C#)
 
+## ⚠️ CRITICAL: QATester Improvements
+
+**Latest update: Enhanced QA Tester for better content generation**
+
+1. **Removed "TEST CASES COMPLETE" instruction**: Termination now uses reliable agent response counting
+2. **Enhanced QA instructions**: More detailed guidance for comprehensive test scenarios  
+3. **GPT-3.5-Turbo optimization**: Simplified instructions work better with this model
+4. **Better content structure**: Clear markdown formatting for professional output
+
+**Key Changes Made:**
+- QATester focuses on content quality instead of completion signals
+- Workflow uses agent response counting (more reliable than text-based termination)
+- Test scenarios now include edge cases, security, performance, and integration tests
+- Instructions optimized for consistent output across different AI models
+
 ## Overview
 
 In this hands-on lab, you'll learn how to build an AI-first Scrum team using Microsoft Semantic Kernel's Group Chat Orchestration pattern in C#. This system simulates a collaborative Scrum team that transforms raw requirements into production-ready Agile artifacts through coordinated AI agents.
@@ -367,42 +382,39 @@ namespace AIScrumTeam.Agents
             {
                 Name = "QATester",
                 Instructions = """
-                    You are a detail-oriented QA Engineer specializing in comprehensive test planning.
+                    You are a QA Engineer. Based on the user stories and solution architecture, create comprehensive test scenarios.
                     
-                    Based on the user stories and acceptance criteria, create detailed test scenarios 
-                    and test cases in Gherkin syntax (Given/When/Then format).
+                    Write 5-7 test scenarios in this format:
                     
-                    Organize your test cases by Feature, covering:
+                    ## Test Scenarios
                     
-                    1. **Happy Path Scenarios** - Normal successful workflows
-                    2. **Error Handling** - Invalid inputs, system errors, network issues
-                    3. **Edge Cases** - Boundary conditions, unusual but valid scenarios
-                    4. **Security Testing** - Authentication, authorization, data validation
-                    5. **Performance Considerations** - Load scenarios where applicable
+                    **Feature: [Feature Name]**
                     
-                    For each feature, write multiple test scenarios that thoroughly validate:
-                    - All acceptance criteria from user stories
-                    - Negative test cases for error handling
-                    - Data validation and security checks
-                    - User experience flows
+                    ### Scenario 1: [Happy Path Test]
+                    - **Given:** [Initial conditions]
+                    - **When:** [User action]
+                    - **Then:** [Expected result]
                     
-                    Use proper Gherkin format:
-                    ```gherkin
-                    Feature: [Feature Name]
+                    ### Scenario 2: [Error Handling Test]
+                    - **Given:** [Initial conditions]
+                    - **When:** [Invalid action]
+                    - **Then:** [Error handling result]
                     
-                    Scenario: [Scenario Description]
-                    Given [initial context]
-                    When [action is performed]
-                    Then [expected outcome]
-                    And [additional verification]
-
-                    After completing all test cases, end your response with:
-                    "Test cases complete"
+                    ### Scenario 3: [Security Test]
+                    - **Given:** [Security context]
+                    - **When:** [Security-related action]
+                    - **Then:** [Security validation result]
                     
-                    This signals that your testing analysis is finished.
+                    Continue with additional scenarios covering:
+                    - Edge cases and boundary conditions
+                    - Integration points
+                    - Performance expectations
+                    - Data validation
+                    
+                    Provide detailed, testable scenarios that a developer can implement.
                     """,
                 Kernel = kernel,
-                Description = "Generates comprehensive test scenarios and test cases in Gherkin format"
+                Description = "Generates comprehensive test scenarios in structured format"
             };
         }
     }
@@ -428,52 +440,147 @@ namespace AIScrumTeam.Managers
     {
         private readonly ILogger<ScrumGroupChatManager> _logger;
         private readonly string[] _agentOrder = { "ProductOwner", "BusinessAnalyst", "SolutionArchitect", "QATester" };
+        private bool _isCompleted = false;
         
         public ScrumGroupChatManager(ILogger<ScrumGroupChatManager> logger) 
         {
             _logger = logger;
-            MaximumInvocationCount = 15;
+            MaximumInvocationCount = 20; // Increased from 15 to give more room for completion
         }
 
         public override ValueTask<GroupChatManagerResult<string>> SelectNextAgent(ChatHistory history, GroupChatTeam team, CancellationToken cancellationToken = default)
         {
+            // Check for completion first to avoid further agent selection
+            if (_isCompleted)
+            {
+                _logger.LogInformation("Workflow already completed, no next agent");
+                return ValueTask.FromResult(new GroupChatManagerResult<string>("") { Reason = "Workflow complete" });
+            }
+
             var lastMessage = history.LastOrDefault();
             var lastAgentName = lastMessage?.AuthorName;
             
             _logger.LogInformation($"Selecting next agent. Last message from: {lastAgentName ?? "None"}");
             
-            // Sequential workflow: PO → BA → SA → QA
+            // SIMPLIFIED: If QATester just responded, terminate immediately
+            if (lastAgentName == "QATester")
+            {
+                _logger.LogInformation("QATester has responded, marking workflow as complete");
+                _isCompleted = true;
+                return ValueTask.FromResult(new GroupChatManagerResult<string>("") { Reason = "QATester completed" });
+            }
+            
+            // Count agent responses for monitoring
+            var agentCounts = history
+                .Where(m => !string.IsNullOrEmpty(m.AuthorName) && m.AuthorName != "user")
+                .GroupBy(m => m.AuthorName!)
+                .ToDictionary(g => g.Key, g => g.Count());
+            
+            // Simple sequential workflow: PO → BA → SA → QA → DONE
             var nextAgentName = lastAgentName switch
             {
                 null or "user" => "ProductOwner",
                 "ProductOwner" => "BusinessAnalyst", 
                 "BusinessAnalyst" => "SolutionArchitect",
                 "SolutionArchitect" => "QATester",
-                "QATester" => "QATester", // Allow QA to finalize
-                _ => "ProductOwner" // Fallback
+                _ => "" // Force termination for any other case
             };
             
             _logger.LogInformation($"Selected next agent: {nextAgentName}");
             return ValueTask.FromResult(new GroupChatManagerResult<string>(nextAgentName));
         }
+        
+        private string HandleQANext(ChatHistory history, Dictionary<string, int> agentCounts)
+        {
+            var qaCount = agentCounts.GetValueOrDefault("QATester", 0);
+            
+            // If QA has responded multiple times, check for completion more strictly
+            if (qaCount >= 2)
+            {
+                _logger.LogWarning($"QA has responded {qaCount} times. Checking for completion signals.");
+                
+                // Look for any completion indicators in QA messages
+                var qaMessages = history
+                    .Where(m => m.AuthorName == "QATester")
+                    .Select(m => m.Content ?? "")
+                    .ToList();
+                    
+                var hasAnyCompletionSignal = qaMessages.Any(content => 
+                    content.Contains("TEST CASES COMPLETE", StringComparison.OrdinalIgnoreCase) ||
+                    content.Contains("testing complete", StringComparison.OrdinalIgnoreCase) ||
+                    content.Contains("test cases complete", StringComparison.OrdinalIgnoreCase) ||
+                    content.Contains("qa complete", StringComparison.OrdinalIgnoreCase));
+                    
+                if (hasAnyCompletionSignal || qaCount >= 3)
+                {
+                    _logger.LogInformation("Forcing completion due to QA signals or limit reached");
+                    _isCompleted = true;
+                    return ""; // Trigger termination
+                }
+            }
+            
+            // Allow QA another chance
+            return "QATester";
+        }
+        
+        private bool HasQACompleted(ChatHistory history)
+        {
+            var qaMessages = history
+                .Where(m => m.AuthorName == "QATester")
+                .Select(m => m.Content ?? "")
+                .ToList();
+                
+            return qaMessages.Any(content => 
+                content.Contains("TEST CASES COMPLETE", StringComparison.OrdinalIgnoreCase) ||
+                content.Contains("test cases complete", StringComparison.OrdinalIgnoreCase));
+        }
 
         public override ValueTask<GroupChatManagerResult<bool>> ShouldTerminate(ChatHistory history, CancellationToken cancellationToken = default)
         {
-            // Check if QA has completed their work
-            var qaMessages = history
-                .Where(m => m.AuthorName == "QATester")
-                .Select(m => m.Content)
-                .ToList();
-                
-            var isComplete = qaMessages.Any(content => 
-                content != null && content.Contains("Test cases complete", StringComparison.OrdinalIgnoreCase));
-                
-            if (isComplete)
+            // Primary termination condition: workflow marked as completed
+            if (_isCompleted)
             {
-                _logger.LogInformation("QA has completed test cases. Terminating conversation.");
+                _logger.LogInformation("🛑 Terminating: Workflow marked as completed");
+                return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) { Reason = "Workflow completed successfully" });
             }
             
-            return ValueTask.FromResult(new GroupChatManagerResult<bool>(isComplete));
+            // SIMPLIFIED: Terminate immediately if QATester has responded
+            // This is MUCH better than waiting for specific text like "TEST CASES COMPLETE"
+            var qaResponseCount = history.Count(m => m.AuthorName == "QATester");
+            if (qaResponseCount >= 1)
+            {
+                _logger.LogInformation("🛑 Terminating: QATester has provided response - this is more reliable than text-based termination");
+                _isCompleted = true;
+                return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) { Reason = "QATester completed" });
+            }
+            
+            // Safety termination conditions
+            
+            // Check for maximum conversation length (safety condition)
+            var maxMessages = 50;
+            var isMaxReached = history.Count >= maxMessages;
+            
+            if (isMaxReached)
+            {
+                _logger.LogWarning($"🛑 Terminating: Maximum message limit reached ({maxMessages})");
+                return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) { Reason = $"Maximum message limit reached ({maxMessages})" });
+            }
+            
+            // Check for stuck agent (same agent responding many times in a row)
+            var lastFiveMessages = history.TakeLast(5).ToList();
+            var isStuck = lastFiveMessages.Count >= 3 && 
+                         lastFiveMessages.All(m => m.AuthorName == lastFiveMessages.First().AuthorName);
+            
+            if (isStuck)
+            {
+                _logger.LogWarning("🛑 Terminating: Agent appears to be stuck in a loop");
+                return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) { Reason = "Agent stuck in loop" });
+            }
+            
+            var reason = $"Workflow continuing (Messages: {history.Count}, QA responses: {qaResponseCount})";
+            _logger.LogInformation($"Termination check: {reason}");
+            
+            return ValueTask.FromResult(new GroupChatManagerResult<bool>(false) { Reason = reason });
         }
 
         public override ValueTask<GroupChatManagerResult<bool>> ShouldRequestUserInput(ChatHistory history, CancellationToken cancellationToken = default)
@@ -487,8 +594,7 @@ namespace AIScrumTeam.Managers
         public override ValueTask<GroupChatManagerResult<string>> FilterResults(ChatHistory history, CancellationToken cancellationToken = default)
         {
             // Create a summary of the scrum team's work
-            var messages = history.ToList();
-            var summary = "Scrum Team has completed their analysis and recommendations.";
+            var summary = "AI Scrum Team has completed their comprehensive analysis and deliverables generation.";
             
             return ValueTask.FromResult(new GroupChatManagerResult<string>(summary));
         }
@@ -564,11 +670,33 @@ namespace AIScrumTeam.Services
             
             // Create conversation history to capture agent responses
             var conversationHistory = new ChatHistory();
+            var agentResponseCount = new Dictionary<string, int>();
+            var lastActivityTime = DateTime.UtcNow;
             
-            // Create response callback to capture agent messages
+            // Enhanced response callback with detailed monitoring
             ValueTask ResponseCallback(ChatMessageContent response)
             {
                 conversationHistory.Add(response);
+                lastActivityTime = DateTime.UtcNow;
+                
+                // Track agent response counts
+                if (!string.IsNullOrEmpty(response.AuthorName))
+                {
+                    agentResponseCount[response.AuthorName] = agentResponseCount.GetValueOrDefault(response.AuthorName) + 1;
+                }
+                
+                // Log detailed response info
+                var preview = response.Content?[..Math.Min(200, response.Content?.Length ?? 0)] ?? "";
+                _logger.LogInformation($"🗣️ {response.AuthorName} (#{agentResponseCount.GetValueOrDefault(response.AuthorName)}): {preview}...");
+                
+                // Check for completion signals
+                if (response.AuthorName == "QATester" && 
+                    (response.Content?.Contains("TEST CASES COMPLETE", StringComparison.OrdinalIgnoreCase) == true ||
+                     response.Content?.Contains("test cases complete", StringComparison.OrdinalIgnoreCase) == true))
+                {
+                    _logger.LogInformation("🎯 QA completion signal detected!");
+                }
+                
                 return ValueTask.CompletedTask;
             }
             
@@ -593,41 +721,56 @@ namespace AIScrumTeam.Services
             
             try
             {
-                // Execute the workflow
+                // Execute the workflow with extended timeout
                 var result = await orchestration.InvokeAsync(requirements, runtime);
-                var finalOutput = await result.GetValueAsync(TimeSpan.FromMinutes(10));
+                
+                // Reduced timeout to 10 minutes for faster feedback
+                var timeout = TimeSpan.FromMinutes(10);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(timeout);
+                
+                _logger.LogInformation($"⏱️ Orchestration started with {timeout.TotalMinutes} minute timeout");
+                
+                // Start progress monitoring
+                var progressTask = MonitorProgressAsync(conversationHistory, agentResponseCount, cts.Token);
+                
+                var finalOutput = await result.GetValueAsync(timeout, cts.Token);
+                
+                // Stop progress monitoring
+                cts.Cancel();
                 
                 // Extract deliverables from conversation history
-                foreach (var message in conversationHistory)
-                {
-                    if (string.IsNullOrEmpty(message.AuthorName) || message.AuthorName == "user")
-                        continue;
-                        
-                    var content = message.Content;
-                    _logger.LogInformation($"📝 Response from {message.AuthorName}: {content?[..Math.Min(100, content?.Length ?? 0)]}...");
-                    
-                    switch (message.AuthorName)
-                    {
-                        case "ProductOwner":
-                            deliverables.ProductOwnerOutput = content;
-                            break;
-                        case "BusinessAnalyst":
-                            deliverables.BusinessAnalystOutput = content;
-                            break;
-                        case "SolutionArchitect":
-                            deliverables.SolutionArchitectOutput = content;
-                            break;
-                        case "QATester":
-                            deliverables.QATestOutput = content;
-                            break;
-                    }
-                }
+                ExtractDeliverables(conversationHistory, deliverables);
                 
                 _logger.LogInformation("✅ QA has completed all test cases. Workflow finished.");
+            }
+            catch (TimeoutException ex)
+            {
+                _logger.LogError("⏰ Orchestration timed out!");
+                LogCurrentState(conversationHistory, agentResponseCount, lastActivityTime);
+                
+                // Still try to extract partial deliverables
+                ExtractDeliverables(conversationHistory, deliverables);
+                
+                throw new InvalidOperationException(
+                    $"AI Scrum Team workflow timed out. Last activity: {DateTime.UtcNow.Subtract(lastActivityTime).TotalSeconds:F1} seconds ago. " +
+                    $"Total messages: {conversationHistory.Count}. Partial deliverables may be available.", ex);
+            }
+            catch (OperationCanceledException ex)
+            {
+                _logger.LogWarning("🛑 Orchestration was cancelled");
+                LogCurrentState(conversationHistory, agentResponseCount, lastActivityTime);
+                
+                // Still try to extract partial deliverables
+                ExtractDeliverables(conversationHistory, deliverables);
+                
+                throw new InvalidOperationException(
+                    $"AI Scrum Team workflow was cancelled. Partial deliverables may be available.", ex);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ Error during AI Scrum Team execution");
+                LogCurrentState(conversationHistory, agentResponseCount, lastActivityTime);
                 throw;
             }
             finally
@@ -637,6 +780,103 @@ namespace AIScrumTeam.Services
             
             _logger.LogInformation("🎉 AI Scrum Team workflow completed successfully!");
             return deliverables;
+        }
+
+        private void ExtractDeliverables(ChatHistory conversationHistory, ScrumDeliverables deliverables)
+        {
+            foreach (var message in conversationHistory)
+            {
+                if (string.IsNullOrEmpty(message.AuthorName) || message.AuthorName == "user")
+                    continue;
+                    
+                var content = message.Content;
+                
+                switch (message.AuthorName)
+                {
+                    case "ProductOwner":
+                        deliverables.ProductOwnerOutput = content;
+                        break;
+                    case "BusinessAnalyst":
+                        deliverables.BusinessAnalystOutput = content;
+                        break;
+                    case "SolutionArchitect":
+                        deliverables.SolutionArchitectOutput = content;
+                        break;
+                    case "QATester":
+                        deliverables.QATestOutput = content;
+                        break;
+                }
+            }
+        }
+
+        private void LogCurrentState(ChatHistory conversationHistory, Dictionary<string, int> agentResponseCount, DateTime lastActivityTime)
+        {
+            _logger.LogError($"📊 Final state: {conversationHistory.Count} messages");
+            
+            foreach (var kvp in agentResponseCount)
+            {
+                _logger.LogError($"  {kvp.Key}: {kvp.Value} responses");
+            }
+            
+            _logger.LogError($"Last activity: {DateTime.UtcNow.Subtract(lastActivityTime).TotalSeconds:F1} seconds ago");
+            
+            // Log last few messages for debugging
+            _logger.LogError("🔍 Last 5 messages:");
+            foreach (var message in conversationHistory.TakeLast(5))
+            {
+                var preview = message.Content?[..Math.Min(200, message.Content?.Length ?? 0)] ?? "";
+                _logger.LogError($"  {message.AuthorName}: {preview}...");
+            }
+        }
+
+        private async Task MonitorProgressAsync(
+            ChatHistory conversationHistory, 
+            Dictionary<string, int> agentResponseCount, 
+            CancellationToken cancellationToken)
+        {
+            var lastCount = 0;
+            var stuckCheckCount = 0;
+            
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    await Task.Delay(45000, cancellationToken); // Check every 45 seconds
+                    
+                    var currentCount = conversationHistory.Count;
+                    
+                    if (currentCount == lastCount)
+                    {
+                        stuckCheckCount++;
+                        _logger.LogWarning($"⚠️ No progress in 45 seconds (check #{stuckCheckCount})");
+                        
+                        if (stuckCheckCount >= 4) // 3 minutes without progress
+                        {
+                            _logger.LogError("🚨 No progress for 3+ minutes - possible deadlock!");
+                            
+                            // Log current state
+                            var lastMessage = conversationHistory.LastOrDefault();
+                            if (lastMessage != null)
+                            {
+                                _logger.LogError($"Last message from: {lastMessage.AuthorName}");
+                                _logger.LogError($"Message preview: {lastMessage.Content?[..Math.Min(150, lastMessage.Content?.Length ?? 0)]}...");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        stuckCheckCount = 0;
+                        var qaCount = agentResponseCount.GetValueOrDefault("QATester", 0);
+                        _logger.LogInformation($"📈 Progress: {currentCount} total messages (QA: {qaCount} responses)");
+                    }
+                    
+                    lastCount = currentCount;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when cancellation is requested
+            }
         }
 
         public async Task SaveDeliverablesAsync(ScrumDeliverables deliverables, string filePath)
@@ -1399,7 +1639,118 @@ When you run the AI Scrum Team, you'll get comprehensive deliverables including:
 - Security and performance considerations
 - Complete Gherkin syntax formatting
 
-## Troubleshooting
+## 🔧 Better Termination Strategies (Microsoft Best Practices)
+
+**Instead of relying on LLM text output like "TEST CASES COMPLETE", use these more reliable approaches:**
+
+### ✅ **Approach 1: MaximumInvocationCount (Simplest)**
+The most reliable approach is using the built-in `MaximumInvocationCount` property:
+
+```csharp
+public ScrumGroupChatManager()
+{
+    // Auto-terminate after reasonable number of interactions
+    MaximumInvocationCount = 8; // 4 agents × 2 rounds = sensible limit
+}
+```
+
+### ✅ **Approach 2: Agent Response Counting**
+Track responses and terminate when all agents have contributed:
+
+```csharp
+public override ValueTask<GroupChatManagerResult<bool>> ShouldTerminate(ChatHistory history, CancellationToken cancellationToken = default)
+{
+    // Count responses by each agent
+    var poCount = history.Count(m => m.AuthorName == "ProductOwner");
+    var baCount = history.Count(m => m.AuthorName == "BusinessAnalyst");
+    var saCount = history.Count(m => m.AuthorName == "SolutionArchitect");
+    var qaCount = history.Count(m => m.AuthorName == "QATester");
+    
+    // Terminate when all agents have contributed
+    if (poCount >= 1 && baCount >= 1 && saCount >= 1 && qaCount >= 1)
+    {
+        return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) 
+        { 
+            Reason = "All agents have provided their contributions" 
+        });
+    }
+    
+    return ValueTask.FromResult(new GroupChatManagerResult<bool>(false));
+}
+```
+
+### ✅ **Approach 3: Content Analysis (Most Sophisticated)**
+Analyze message content for semantic completion:
+
+```csharp
+public override ValueTask<GroupChatManagerResult<bool>> ShouldTerminate(ChatHistory history, CancellationToken cancellationToken = default)
+{
+    // Check for substantial QA content
+    var lastFewMessages = history.TakeLast(3).ToList();
+    bool hasQAContent = lastFewMessages.Any(m => 
+        m.Content?.Length > 100 && // Substantial content
+        (m.Content.Contains("test", StringComparison.OrdinalIgnoreCase) ||
+         m.Content.Contains("scenario", StringComparison.OrdinalIgnoreCase) ||
+         m.Content.Contains("validation", StringComparison.OrdinalIgnoreCase)));
+         
+    if (hasQAContent && history.Count >= 6) // Reasonable conversation + QA content
+    {
+        return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) 
+        { 
+            Reason = "QA content detected, workflow appears complete" 
+        });
+    }
+    
+    return ValueTask.FromResult(new GroupChatManagerResult<bool>(false));
+}
+```
+
+### ✅ **Approach 4: RegexTerminationStrategy (Built-in)**
+Use Semantic Kernel's built-in regex termination:
+
+```csharp
+// In older AgentGroupChat (deprecated but shows concept)
+var terminationStrategy = new RegexTerminationStrategy(
+    new Regex(@"\b(complete|finished|done)\b", RegexOptions.IgnoreCase),
+    agentName: "QATester"); // Only terminate on QATester messages
+```
+
+### ✅ **Approach 5: KernelFunctionTerminationStrategy (AI-Powered)**
+Let AI decide when to terminate:
+
+```csharp
+var terminationFunction = KernelFunctionFromPrompt.Create(
+    @"Analyze the conversation and determine if the Scrum workflow is complete.
+      Look for: Product Owner requirements, Business Analysis, Architecture design, and QA test scenarios.
+      Respond with 'TERMINATE' if all components are present, otherwise 'CONTINUE'.");
+
+var terminationStrategy = new KernelFunctionTerminationStrategy(
+    terminationFunction, 
+    kernel)
+{
+    ResultParser = (result) => result.GetValue<string>()?.Contains("TERMINATE") == true
+};
+```
+
+### 🎯 **Recommended Approach for This HOL**
+
+The current implementation uses **Approach 2** (agent response counting) which is much more reliable than text-based termination. Here's why this is better:
+
+**❌ Problems with text-based termination:**
+- LLMs don't always follow instructions exactly
+- Formatting can vary ("Test cases complete" vs "TEST CASES COMPLETE")
+- Model temperature affects consistency
+- Can cause infinite loops if string never appears
+
+**✅ Benefits of response counting:**
+- Deterministic and reliable
+- Not dependent on LLM text generation
+- Guarantees each agent contributes
+- Prevents infinite loops
+- Easy to debug and monitor
+
+The current code automatically terminates when QATester responds, ensuring the workflow completes successfully without relying on specific text output.
+
 
 ### Common Issues
 
@@ -1467,7 +1818,135 @@ When you run the AI Scrum Team, you'll get comprehensive deliverables including:
    }
    ```
 
-4. **"Orchestration did not complete within the allowed duration" Timeout Error**
+4. **🚨 QATester Hanging / Never Returning Response (CRITICAL ISSUE)**
+
+   This is the most common issue reported. The QATester agent gets stuck and never returns a response, causing the workflow to timeout. Here are the causes and solutions:
+
+   **Root Causes:**
+   - Inconsistent termination signal detection
+   - Agent selection logic conflicts
+   - Timeout values too low for complex interactions
+   - Missing completion signal in QA agent instructions
+
+   **Solution 1: Update QA Agent Instructions (REQUIRED)**
+   
+   The QA agent must use a consistent, uppercase completion signal:
+
+   ```csharp
+   public static ChatCompletionAgent Create(Kernel kernel)
+   {
+       return new ChatCompletionAgent()
+       {
+           Name = "QATester",
+           Instructions = """
+               // ... existing instructions ...
+               
+               IMPORTANT: After completing all test cases, you MUST end your response with exactly this phrase:
+               "TEST CASES COMPLETE"
+               
+               This signals that your testing analysis is finished and the workflow should terminate.
+               """,
+           Kernel = kernel,
+           Description = "Generates comprehensive test scenarios and test cases in Gherkin format"
+       };
+   }
+   ```
+
+   **Solution 2: Improve GroupChatManager Logic (REQUIRED)**
+   
+   The termination logic needs to be more robust and handle edge cases:
+
+   ```csharp
+   public class ScrumGroupChatManager : GroupChatManager
+   {
+       private bool _isCompleted = false;
+       
+       public override ValueTask<GroupChatManagerResult<string>> SelectNextAgent(ChatHistory history, GroupChatTeam team, CancellationToken cancellationToken = default)
+       {
+           // Check for completion first to avoid further agent selection
+           if (_isCompleted)
+           {
+               return ValueTask.FromResult(new GroupChatManagerResult<string>("") { Reason = "Workflow complete" });
+           }
+
+           var lastMessage = history.LastOrDefault();
+           var lastAgentName = lastMessage?.AuthorName;
+           
+           // Check if QA has completed their work
+           if (lastAgentName == "QATester" && HasQACompleted(history))
+           {
+               _isCompleted = true;
+               return ValueTask.FromResult(new GroupChatManagerResult<string>("") { Reason = "QA work complete" });
+           }
+           
+           // Rest of agent selection logic...
+       }
+       
+       private bool HasQACompleted(ChatHistory history)
+       {
+           var qaMessages = history
+               .Where(m => m.AuthorName == "QATester")
+               .Select(m => m.Content ?? "")
+               .ToList();
+               
+           return qaMessages.Any(content => 
+               content.Contains("TEST CASES COMPLETE", StringComparison.OrdinalIgnoreCase) ||
+               content.Contains("test cases complete", StringComparison.OrdinalIgnoreCase));
+       }
+   }
+   ```
+
+   **Solution 3: Increase Timeouts and Add Monitoring (RECOMMENDED)**
+   
+   ```csharp
+   public async Task<ScrumDeliverables> ProcessRequirementsAsync(string requirements, CancellationToken cancellationToken = default)
+   {
+       // Increased timeout to 30 minutes
+       var timeout = TimeSpan.FromMinutes(30);
+       using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+       cts.CancelAfter(timeout);
+       
+       // Add progress monitoring
+       var progressTask = MonitorProgressAsync(conversationHistory, agentResponseCount, cts.Token);
+       
+       var finalOutput = await result.GetValueAsync(timeout, cts.Token);
+   }
+   ```
+
+   **Solution 4: Add Fallback Recovery Logic (RECOMMENDED)**
+   
+   ```csharp
+   public override ValueTask<GroupChatManagerResult<bool>> ShouldTerminate(ChatHistory history, CancellationToken cancellationToken = default)
+   {
+       // Multiple termination conditions for robustness
+       
+       // 1. Check QA response count (safety valve)
+       var qaResponseCount = history.Count(m => m.AuthorName == "QATester");
+       if (qaResponseCount >= 3)
+       {
+           _logger.LogWarning($"🛑 Force terminating: QA has responded {qaResponseCount} times");
+           return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) { Reason = "QA response limit reached" });
+       }
+       
+       // 2. Check for completion signals
+       var isQAComplete = HasQACompleted(history);
+       if (isQAComplete)
+       {
+           return ValueTask.FromResult(new GroupChatManagerResult<bool>(true) { Reason = "QA completed" });
+       }
+       
+       // 3. Other safety conditions...
+   }
+   ```
+
+   **Debugging Steps:**
+   1. Enable debug logging to see agent responses
+   2. Check if QA agent is receiving proper context from previous agents
+   3. Verify Azure OpenAI service limits and quotas
+   4. Monitor for token limit issues
+   5. Check network connectivity and service availability
+
+5. **"Orchestration did not complete within the allowed duration" Timeout Error**
 
    This error occurs when the AI agents don't complete their workflow within the timeout period. Common causes and solutions:
 
@@ -1478,7 +1957,7 @@ When you run the AI Scrum Team, you'll get comprehensive deliverables including:
        // ... other instructions ...
        
        After completing all test cases, end your response with:
-       "Test cases complete"
+       "TEST CASES COMPLETE"
        
        This signals that your testing analysis is finished.
        """,
@@ -1497,11 +1976,11 @@ When you run the AI Scrum Team, you'll get comprehensive deliverables including:
            // Execute with longer timeout and better monitoring
            var result = await orchestration.InvokeAsync(requirements, runtime);
            
-           // Increase timeout to 20 minutes and add cancellation token support
+           // Increase timeout to 30 minutes and add cancellation token support
            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-           cts.CancelAfter(TimeSpan.FromMinutes(20));
+           cts.CancelAfter(TimeSpan.FromMinutes(30));
            
-           var finalOutput = await result.GetValueAsync(TimeSpan.FromMinutes(20), cts.Token);
+           var finalOutput = await result.GetValueAsync(TimeSpan.FromMinutes(30), cts.Token);
            
            _logger.LogInformation("✅ Orchestration completed successfully");
            
@@ -1523,84 +2002,16 @@ When you run the AI Scrum Team, you'll get comprehensive deliverables including:
    }
    ```
 
-   **c) Improve the Group Chat Manager termination logic:**
-   ```csharp
-   public override ValueTask<GroupChatManagerResult<bool>> ShouldTerminate(ChatHistory history, CancellationToken cancellationToken = default)
-   {
-       // Multiple termination conditions for robustness
-       
-       // 1. Check if QA has completed (primary condition)
-       var qaMessages = history
-           .Where(m => m.AuthorName == "QATester")
-           .Select(m => m.Content)
-           .ToList();
-           
-       var isQAComplete = qaMessages.Any(content => 
-           content != null && content.Contains("Test cases complete", StringComparison.OrdinalIgnoreCase));
-       
-       // 2. Check for maximum conversation length (safety condition)
-       var maxMessages = 50; // Prevent infinite loops
-       var isMaxReached = history.Count >= maxMessages;
-       
-       // 3. Check if all agents have responded at least once (minimum progress condition)
-       var agentNames = new[] { "ProductOwner", "BusinessAnalyst", "SolutionArchitect", "QATester" };
-       var respondedAgents = history
-           .Where(m => agentNames.Contains(m.AuthorName))
-           .Select(m => m.AuthorName)
-           .Distinct()
-           .Count();
-       
-       var allAgentsResponded = respondedAgents == agentNames.Length;
-       
-       // 4. Check for stuck agent (same agent responding multiple times in a row)
-       var lastFiveMessages = history.TakeLast(5).ToList();
-       var isStuck = lastFiveMessages.Count >= 5 && 
-                     lastFiveMessages.All(m => m.AuthorName == lastFiveMessages.First().AuthorName);
-       
-       var shouldTerminate = isQAComplete || isMaxReached || isStuck;
-       
-       var reason = shouldTerminate switch
-       {
-           true when isQAComplete => "QA has completed test cases",
-           true when isMaxReached => $"Maximum message limit reached ({maxMessages})",
-           true when isStuck => "Agent appears to be stuck in a loop",
-           _ => "Workflow continuing"
-       };
-       
-       _logger.LogInformation($"Termination check: {reason} (Messages: {history.Count}, Agents responded: {respondedAgents}/4)");
-       
-       return ValueTask.FromResult(new GroupChatManagerResult<bool>(shouldTerminate) { Reason = reason });
-   }
-   ```
+6. **NuGet Package Conflicts**
 
-   **d) Add conversation monitoring:**
-   ```csharp
-   // Enhanced response callback with monitoring
-   ValueTask ResponseCallback(ChatMessageContent response)
-   {
-       conversationHistory.Add(response);
-       
-       // Log each response for monitoring
-       _logger.LogInformation($"🗣️ {response.AuthorName}: {response.Content?[..Math.Min(150, response.Content?.Length ?? 0)]}...");
-       
-       // Check for potential issues
-       if (conversationHistory.Count > 30)
-       {
-           _logger.LogWarning($"⚠️ Conversation has {conversationHistory.Count} messages. Consider reviewing termination logic.");
-       }
-       
-       return ValueTask.CompletedTask;
-   }
-   ```
-
-5. **NuGet Package Conflicts**
 ```bash
 dotnet clean
 dotnet restore
 dotnet build
 ```
 
-3. **Azure OpenAI Connection Issues**
+7. **Azure OpenAI Connection Issues**
+
 ```csharp
 // Test connection in Program.cs
 var testKernel = Kernel.CreateBuilder()
@@ -1611,7 +2022,8 @@ var chatService = testKernel.GetRequiredService<IChatCompletionService>();
 Console.WriteLine("✅ Azure OpenAI connection successful");
 ```
 
-4. **Configuration Problems**
+8. **Configuration Problems**
+
 - Verify appsettings.json format
 - Check environment variables
 - Validate Azure OpenAI credentials

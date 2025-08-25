@@ -78,18 +78,11 @@ ai_scrum_team/
 Create `agents/product_owner.py`:
 
 ```python
-import os
-from dotenv import load_dotenv
 from semantic_kernel.agents import ChatCompletionAgent
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-load_dotenv()
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-api_key = os.getenv("AZURE_OPENAI_KEY")
-model = os.getenv("MODEL_NAME")
-
-def create_product_owner_agent():
+def create_product_owner_agent(kernel):
     return ChatCompletionAgent(
+        kernel=kernel,
         name="ProductOwner",
         description="Generates a detailed System Requirements Specification (SRS) from raw requirements.",
         instructions=(
@@ -98,11 +91,6 @@ def create_product_owner_agent():
             "The SRS should include a project overview, detailed features, constraints, assumptions, and any business rules. "
             "Structure your response with clear sections for Project Overview, Business Requirements, "
             "System Requirements (both functional and non-functional), Constraints, Assumptions, and Business Rules."
-        ),
-        service=AzureChatCompletion(
-            deployment_name=model,
-            api_key=api_key,
-            base_url=endpoint
         )
     )
 ```
@@ -112,18 +100,11 @@ def create_product_owner_agent():
 Create `agents/business_analyst.py`:
 
 ```python
-import os
-from dotenv import load_dotenv
 from semantic_kernel.agents import ChatCompletionAgent
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-load_dotenv()
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-api_key = os.getenv("AZURE_OPENAI_KEY")
-model = os.getenv("MODEL_NAME")
-
-def create_business_analyst_agent():
+def create_business_analyst_agent(kernel):
     return ChatCompletionAgent(
+        kernel=kernel,
         name="BusinessAnalyst",
         description="Breaks the SRS into detailed user stories with acceptance criteria in Given/When/Then format.",
         instructions=(
@@ -134,11 +115,6 @@ def create_business_analyst_agent():
             "Organize stories into logical Epics and use the standard format: "
             "'As a [user], I want [goal] so that [benefit]'. "
             "Include comprehensive acceptance criteria with multiple scenarios for each story."
-        ),
-        service=AzureChatCompletion(
-            deployment_name=model,
-            api_key=api_key,
-            base_url=endpoint
         )
     )
 ```
@@ -148,18 +124,11 @@ def create_business_analyst_agent():
 Create `agents/solution_architect.py`:
 
 ```python
-import os
-from dotenv import load_dotenv
 from semantic_kernel.agents import ChatCompletionAgent
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-load_dotenv()
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-api_key = os.getenv("AZURE_OPENAI_KEY")
-model = os.getenv("MODEL_NAME")
-
-def create_solution_architect_agent():
+def create_solution_architect_agent(kernel):
     return ChatCompletionAgent(
+        kernel=kernel
         name="SolutionArchitect",
         description="Designs the overall solution architecture and identifies technical dependencies.",
         instructions=(
@@ -170,11 +139,6 @@ def create_solution_architect_agent():
             "Include sections for: Major Components, System Interactions, Infrastructure Needs, "
             "Technical Dependencies and Risks, and Additional Technical User Stories. "
             "Focus on scalability, security, and maintainability."
-        ),
-        service=AzureChatCompletion(
-            deployment_name=model,
-            api_key=api_key,
-            base_url=endpoint
         )
     )
 ```
@@ -184,18 +148,11 @@ def create_solution_architect_agent():
 Create `agents/qa_agent.py`:
 
 ```python
-import os
-from dotenv import load_dotenv
 from semantic_kernel.agents import ChatCompletionAgent
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-load_dotenv()
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-api_key = os.getenv("AZURE_OPENAI_KEY")
-model = os.getenv("MODEL_NAME")
-
-def create_qa_agent():
+def create_qa_agent(kernel):
     return ChatCompletionAgent(
+        kernel=kernel
         name="QATester",
         description="Generates test scenarios and test cases in Gherkin format for each user story.",
         instructions=(
@@ -211,11 +168,6 @@ def create_qa_agent():
             "conclude your response with the phrase: 'Test cases complete'. "
             "Do not keep asking how you can assist further. "
             "Always stop when done."
-        ),
-        service=AzureChatCompletion(
-            deployment_name=model,
-            api_key=api_key,
-            base_url=endpoint
         )
     )
 ```
@@ -225,8 +177,7 @@ def create_qa_agent():
 Create `manager/scrum_group_chat_manager.py`:
 
 ```python
-from semantic_kernel.agents.group_chat import GroupChatManager
-from semantic_kernel.agents.utils import StringResult, BooleanResult, MessageResult
+from semantic_kernel.agents import GroupChatManager, StringResult, BooleanResult, MessageResult
 from semantic_kernel.contents import ChatMessageContent, ChatHistory
 
 class ScrumGroupChatManager(GroupChatManager):
@@ -236,12 +187,6 @@ class ScrumGroupChatManager(GroupChatManager):
     """
     
     async def select_next_agent(self, chat_history: ChatHistory, participant_descriptions: dict[str, str]) -> StringResult:
-        """
-        Determines which agent should speak next based on the conversation flow.
-        Implements the sequential Scrum workflow.
-        """
-        if not chat_history.messages:
-            return StringResult(result="ProductOwner", reason="Start with PO to generate SRS.")
         
         last_message = chat_history.messages[-1]
         
@@ -282,8 +227,7 @@ class ScrumGroupChatManager(GroupChatManager):
         output = "# 📋 Scrum AI Team Deliverables\n\n"
         
         for message in chat_history.messages:
-            if message.name and message.name != "user":
-                output += f"## {message.name}\n{message.content}\n\n"
+            output += f"## {message.name}\n{message.content}\n\n"
         
         return MessageResult(
             result=ChatMessageContent(role="assistant", content=output),
@@ -297,91 +241,97 @@ Create `runtime/run_scrum_team.py`:
 
 ```python
 import asyncio
-from semantic_kernel.agents.group_chat import GroupChatOrchestration
-from semantic_kernel.agents.runtime import InProcessRuntime
+import sys
+import os
+
+from dotenv import load_dotenv
+
+# Add the parent directory to the Python path so we can import from agents and manager
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from semantic_kernel import Kernel
+from semantic_kernel.agents import AgentGroupChat
+from semantic_kernel.agents.strategies.selection.sequential_selection_strategy import SequentialSelectionStrategy
+from semantic_kernel.agents.strategies.termination.default_termination_strategy import DefaultTerminationStrategy
+from semantic_kernel.contents import ChatMessageContent, AuthorRole
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
 from agents.product_owner import create_product_owner_agent
 from agents.business_analyst import create_business_analyst_agent
 from agents.solution_architect import create_solution_architect_agent
 from agents.qa_agent import create_qa_agent
-from manager.scrum_group_chat_manager import ScrumGroupChatManager
 
-async def run_ai_scrum_team(requirements: str, output_file: str = "scrum_deliverables.md"):
-    """
-    Main function to run the AI Scrum Team workflow.
-    
-    Args:
-        requirements (str): Raw business requirements
-        output_file (str): Output file for deliverables
-    """
-    print("🚀 Starting AI Scrum Team...")
-    
-    # Create all agents
-    agents = [
-        create_product_owner_agent(),
-        create_business_analyst_agent(),
-        create_solution_architect_agent(),
-        create_qa_agent(),
-    ]
-    
-    print(f"✅ Created {len(agents)} agents")
-    
-    # Set up group chat orchestration
-    orchestration = GroupChatOrchestration(
-        members=agents,
-        manager=ScrumGroupChatManager(max_rounds=15),
-        agent_response_callback=lambda m: print(f"\n**{m.name}**\n{m.content[:200]}...\n" if len(m.content) > 200 else f"\n**{m.name}**\n{m.content}\n")
-    )
-    
-    # Start runtime
-    runtime = InProcessRuntime()
-    runtime.start()
-    print("🏃 Runtime started")
-    
-    try:
-        # Execute the workflow
-        print("🔄 Processing requirements through AI Scrum Team...")
-        result = await orchestration.invoke(
-            task=requirements,
-            runtime=runtime,
-        )
-        
-        # Get final output
-        final_output = await result.get()
-        
-        print(f"\n=== 📋 SCRUM DELIVERABLES COMPLETE ===\n")
-        
-        # Save to file
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(str(final_output.content))
-        
-        print(f"✅ Deliverables saved to {output_file}")
-        
-        return final_output
-        
-    except Exception as e:
-        print(f"❌ Error during execution: {e}")
-        raise
-    finally:
-        await runtime.stop_when_idle()
-        print("🛑 Runtime stopped")
+load_dotenv()
+
+# Get configuration
+endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+api_key = os.getenv("AZURE_OPENAI_KEY")
+deployment_name = os.getenv("MODEL_NAME")
 
 async def main():
-    """
-    Example usage of the AI Scrum Team
-    """
-    # Sample requirements
-    sample_requirements = (
+    kernel = Kernel()
+    service = AzureChatCompletion(
+        deployment_name=deployment_name,
+        api_key=api_key,
+        endpoint=endpoint,
+        api_version="2024-12-01-preview"
+    )
+    kernel.add_service(service)
+
+    # Create agents using the latest API, preserving prompts/instructions
+    product_owner = create_product_owner_agent(kernel=kernel)
+    business_analyst = create_business_analyst_agent(kernel=kernel)
+    solution_architect = create_solution_architect_agent(kernel=kernel)
+    qa_agent = create_qa_agent(kernel=kernel)
+
+    # Use custom manager for agent selection/termination
+    chat = AgentGroupChat(
+        agents=[product_owner, business_analyst, solution_architect, qa_agent],
+        selection_strategy=SequentialSelectionStrategy(),
+        termination_strategy=DefaultTerminationStrategy(maximum_iterations=15)
+    )
+
+    task = (
         "We need a system that lets customers order groceries online, "
         "select same-day delivery, pay by credit card or wallet, "
         "and use promo codes. The system must support secure user registration and order tracking."
     )
+
+    print("🚀 Starting Scrum Team Collaboration...\n")
+    print(f"Task: {task}\n")
+    print("=" * 80 + "\n")
+
+    await chat.add_chat_message(
+        ChatMessageContent(
+            role=AuthorRole.USER,
+            content=task
+        )
+    )
     
-    # You can also load requirements from a file:
-    # with open("requirements.txt", "r") as f:
-    #     requirements = f.read()
-    
-    await run_ai_scrum_team(sample_requirements)
+    # Collect history as we process the chat
+    history = []
+
+    async for response in chat.invoke():
+        if response.content:
+            print(f"\n**{response.name}**")
+            print(f"{response.content}\n")
+            print("-" * 40)
+            # Collect messages as we go
+            history.append(response)
+
+    # Alternative way to get history if the chat stores it internally
+    # If chat has a history property, use it:
+    # history = chat.history if hasattr(chat, 'history') else history
+
+    with open("scrum_output.md", "w", encoding="utf-8") as f:
+        f.write("# Scrum Team Deliverables\n\n")
+        f.write(f"## Task\n{task}\n\n")
+        for message in history:
+            if message.name:
+                f.write(f"\n## {message.name}\n\n")
+                f.write(f"{message.content}\n\n")
+
+    print("\n✅ Deliverables saved to scrum_output.md\n")
 
 if __name__ == "__main__":
     asyncio.run(main())

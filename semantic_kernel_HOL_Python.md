@@ -25,28 +25,8 @@ Before starting the Python lab, you'll need to install the following Python pack
 | `python-dotenv` | Latest | Environment variable management for secure configuration |
 | `aiofiles` | Latest | Asynchronous file operations (required by some SK components) |
 
-**Installation Command:**
-```bash
-# Run this single command to install all required packages
-pip install semantic-kernel[azure] python-dotenv aiofiles
-```
-
-**Alternative Individual Installation:**
-If you prefer to install packages one by one, use these commands:
-
-```bash
-pip install semantic-kernel[azure]
-pip install python-dotenv
-pip install aiofiles
-```
-
-**Requirements File Creation:**
-After installation, create a `requirements.txt` file to track dependencies:
-```bash
-pip freeze > requirements.txt
-```
-
 **Package Details:**
+
 - **`semantic-kernel[azure]`:** Includes the core Semantic Kernel library plus Azure-specific connectors (Azure OpenAI, Azure AI Inference, etc.). The `[azure]` extra automatically includes all necessary Azure dependencies.
 - **`python-dotenv`:** Enables loading configuration from `.env` files for secure credential management
 - **`aiofiles`:** Supports asynchronous file operations used by some Semantic Kernel components
@@ -94,46 +74,64 @@ pip freeze > requirements.txt
 import asyncio
 import os
 from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.azure_open_ai import AzureOpenAIChatCompletion
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.contents import ChatHistory
+from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.azure_chat_prompt_execution_settings import AzureChatPromptExecutionSettings
 from semantic_kernel.functions import KernelArguments
-import logging
+from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
+from semantic_kernel.functions.kernel_function_decorator import kernel_function
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 async def main():
-    # Create kernel
-    kernel = Kernel()
-    
-    # Add Azure OpenAI chat completion service for Azure Government
-    # Replace with your actual Azure OpenAI details
-    endpoint = "https://your-resource.openai.usgovcloudapi.net/"
-    api_key = "your-azure-openai-api-key"
-    deployment_name = "gpt-35-turbo"  # Your deployed model name
-    
-    chat_completion = AzureOpenAIChatCompletion(
-        service_id="default",
-        deployment_name=deployment_name,
-        endpoint=endpoint,
-        api_key=api_key
-    )
-    
-    kernel.add_service(chat_completion)
-    
-    print("✅ Kernel created successfully!")
-    print("✅ Azure OpenAI chat completion service added for Azure Government!")
-    
-    # Test basic chat completion
-    from semantic_kernel.contents import ChatHistory
-    chat_history = ChatHistory()
-    chat_history.add_user_message("Hello, what's the capital of France?")
-    
-    response = await chat_completion.get_chat_message_content(
-        chat_history=chat_history,
-        settings=None
-    )
-    print(f"AI Response: {response}")
+    try:
+        # Create kernel
+        kernel = Kernel()
+        
+        # Get Azure OpenAI details from environment variables for security
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+        
+        if not all([endpoint, api_key, deployment_name]):
+            raise ValueError("Please set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT_NAME in your .env file")
+        
+        print(f"Using Azure OpenAI endpoint: {endpoint}")
+        
+        # Add Azure OpenAI chat completion service for Azure Government
+        chat_completion = AzureChatCompletion(
+            deployment_name=deployment_name,
+            endpoint=endpoint,
+            api_key=api_key,
+            api_version="2024-06-01"  # Use latest stable API version
+        )
+        
+        kernel.add_service(chat_completion)
+        
+        # Test basic chat completion with proper error handling
+        chat_history = ChatHistory()
+        chat_history.add_user_message("Hello, what's the capital of France?")
+        
+        execution_settings = AzureChatPromptExecutionSettings(
+            function_choice_behavior=FunctionChoiceBehavior.Auto(),
+            max_tokens=500,
+            temperature=0.1
+        )
+        
+        response = await chat_completion.get_chat_message_content(
+            chat_history=chat_history,
+            settings=execution_settings,
+            kernel=kernel
+        )
+        
+        print(f"AI Response: {response}")
+        
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -141,14 +139,23 @@ if __name__ == "__main__":
 
 > **What you're doing:** This sets up the Python Semantic Kernel with Azure OpenAI integration specifically for Azure Government. Note the `.usgovcloudapi.net` endpoint and the use of `AzureOpenAIChatCompletion` instead of the regular OpenAI connector.
 
-6. **Test the basic setup**:
+6. **Create an `.env` file**
+	```bash
+	AZURE_OPENAI_ENDPOINT=your_endpoint_here
+	AZURE_OPENAI_API_KEY=your_api_key_here
+	AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
+	```
+   
+7. **Test the basic setup**:
+   
    ```bash
    python main.py
    ```
 
 ## Step 3: Add Native Plugin
 
-7. **Create `plugins/math_plugin.py`**:
+8. **Create `plugins/math_plugin.py`**:
+   
    ```bash
    mkdir plugins
    ```
@@ -203,53 +210,57 @@ class MathPlugin:
 
 ## Step 4: Add Prompt-Based Plugin
 
-8. **Create prompt templates folder structure**:
+9. **Create prompt templates folder structure**:
    ```bash
-   mkdir -p plugins/writing_plugin
+   mkdir -p plugins/writing_plugin/summarize
    ```
 
-9. **Create `plugins/writing_plugin/summarize.txt`**:
+10. **Create `plugins/writing_plugin/summarize/skpromp.txt`**:
 ```text
 Summarize the following text in a concise way:
-
 {{$input}}
 
 Summary:
 ```
 
-10. **Create `plugins/writing_plugin/config.json`**:
+11. **Create `plugins/writing_plugin/summarize/config.json`**:
 ```json
 {
-    "schema": 1,
-    "description": "Plugin for writing assistance",
-    "functions": [
-        {
-            "name": "summarize",
-            "description": "Summarizes text content",
-            "is_semantic": true
-        }
-    ]
+  "schema": 1,
+  "description": "Summarizes text content",
+  "execution_settings": {
+    "default": {
+      "max_tokens": 256,
+      "temperature": 0.2
+    }
+  },
+  "input_variables": [
+    {
+      "name": "input",
+      "description": "Text to summarize",
+      "required": true
+    }
+  ]
 }
 ```
 
 ## Step 5: Add Memory Service
 
-11. **Create `memory_service.py`**:
+12. **Create `memory_service.py`**:
 
 ```python
 import os
 from typing import List, Optional
 from semantic_kernel.memory import SemanticTextMemory
-from semantic_kernel.connectors.ai.azure_open_ai import AzureOpenAITextEmbedding
-from semantic_kernel.memory.memory_stores.volatile_memory_store import VolatileMemoryStore
+from semantic_kernel.connectors.ai.open_ai import AzureTextEmbedding
+from semantic_kernel.memory.volatile_memory_store import VolatileMemoryStore
 
 class MemoryService:
     """Service for managing semantic memory operations with Azure OpenAI."""
     
     def __init__(self, endpoint: str, api_key: str, deployment_name: str):
         # Create Azure OpenAI embedding service for Azure Government
-        embedding_service = AzureOpenAITextEmbedding(
-            service_id="default",
+        embedding_service = AzureTextEmbedding(
             deployment_name=deployment_name,
             endpoint=endpoint,
             api_key=api_key
@@ -293,7 +304,7 @@ class MemoryService:
 
 ## Step 6: Add Filters
 
-12. **Create `filters.py`**:
+13. **Create `filters.py`**:
 
 ```python
 import time
@@ -366,7 +377,7 @@ class SecurityFilter:
 
 ## Step 7: Environment Configuration
 
-13. **Create `.env` file** for secure credential storage:
+14. **Create `.env` file** for secure credential storage if you have not done so already:
 
 ```bash
 # Create .env file in the project root with Azure Government specific values
@@ -376,7 +387,7 @@ echo "AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-35-turbo" >> .env
 echo "AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002" >> .env
 ```
 
-14. **Create `.env.example` file** as a template:
+15. **Create `.env.example` file** as a template:
 
 ```bash
 # Example environment variables for Azure Government
@@ -386,7 +397,7 @@ AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-35-turbo
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 ```
 
-15. **Install python-dotenv** (if not already installed from the Required Python Packages section):
+16. **Install python-dotenv** (if not already installed from the Required Python Packages section):
 
 ```bash
 pip install python-dotenv
@@ -394,152 +405,165 @@ pip install python-dotenv
 
 ## Step 8: Complete Python Application
 
-16. **Update `main.py`** with the complete implementation:
+17. **Update `main.py`** with the complete implementation:
 
 ```python
 import asyncio
 import os
-from pathlib import Path
-from dotenv import load_dotenv
 from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.azure_open_ai import AzureOpenAIChatCompletion
-from semantic_kernel.functions import KernelArguments
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 from semantic_kernel.contents import ChatHistory
-from semantic_kernel.connectors.ai.function_call_behavior import FunctionCallBehavior
-from semantic_kernel.connectors.ai.azure_open_ai.prompt_execution_settings.azure_open_ai_prompt_execution_settings import AzureOpenAIPromptExecutionSettings
+from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.azure_chat_prompt_execution_settings import AzureChatPromptExecutionSettings
+from semantic_kernel.functions import KernelArguments
+from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
+from semantic_kernel.functions.kernel_function_decorator import kernel_function
 
 # Import our custom modules
 from plugins.math_plugin import MathPlugin
 from memory_service import MemoryService
-from filters import LoggingFilter, SecurityFilter
 
-import logging
+from pathlib import Path
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 async def main():
-    # Get Azure OpenAI configuration from environment variables
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    api_key = os.getenv("AZURE_OPENAI_API_KEY")
-    chat_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
-    embedding_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
-    
-    if not all([endpoint, api_key, chat_deployment, embedding_deployment]):
-        raise ValueError("Missing required Azure OpenAI environment variables")
-    
-    print(f"Using Azure Government endpoint: {endpoint}")
-    
-    # Create kernel
-    kernel = Kernel()
-    
-    # Add Azure OpenAI chat completion service for Azure Government
-    chat_completion = AzureOpenAIChatCompletion(
-        service_id="default",
-        deployment_name=chat_deployment,
-        endpoint=endpoint,
-        api_key=api_key
-    )
-    kernel.add_service(chat_completion)
-    
-    print("✅ Kernel created successfully!")
-    print("✅ Azure OpenAI chat completion service added for Azure Government!")
-    
-    # Add native plugin
-    math_plugin = MathPlugin()
-    kernel.add_plugin(math_plugin, plugin_name="MathPlugin")
-    print("✅ Native MathPlugin added!")
-    
-    # Add prompt-based plugin
-    plugins_dir = Path(__file__).parent / "plugins"
     try:
-        kernel.add_plugin_from_prompt_directory(
-            plugin_name="WritingPlugin",
-            plugin_dir=str(plugins_dir / "writing_plugin")
-        )
-        print("✅ Prompt-based WritingPlugin added!")
-    except Exception as e:
-        print(f"⚠️ Failed to load WritingPlugin: {e}")
-    
-    # Initialize memory service with Azure OpenAI embeddings
-    memory_service = MemoryService(endpoint, api_key, embedding_deployment)
-    
-    # Save information to memory
-    await memory_service.save_information("fact1", "The capital of France is Paris")
-    await memory_service.save_information("fact2", "Python is a programming language created by Guido van Rossum") 
-    await memory_service.save_information("fact3", "The Semantic Kernel is a Microsoft framework for AI orchestration")
-    await memory_service.save_information("fact4", "Azure Government provides cloud services for US government agencies")
-    
-    print("\n🧠 Testing Memory with Azure OpenAI Embeddings:")
-    memory_result = await memory_service.search_memory("What is the capital of France?")
-    print(f"Memory search result:\n{memory_result}")
-    
-    # Test native plugin
-    print("\n🧮 Testing Native Plugin:")
-    try:
-        math_result = await kernel.invoke(
-            function_name="MathPlugin-add",
-            arguments=KernelArguments(number1=5, number2=3)
-        )
-        print(f"5 + 3 = {math_result}")
-    except Exception as e:
-        print(f"Error testing native plugin: {e}")
-    
-    # Test prompt-based plugin
-    print("\n📝 Testing Prompt-based Plugin:")
-    try:
-        long_text = ("Artificial Intelligence (AI) is a branch of computer science that aims to create "
-                    "intelligent machines that can perform tasks that typically require human intelligence. "
-                    "These tasks include learning, reasoning, problem-solving, perception, and language understanding. " 
-                    "AI has applications in many fields including healthcare, finance, transportation, and entertainment.")
+        # Create kernel
+        kernel = Kernel()
         
-        summary_result = await kernel.invoke(
-            function_name="WritingPlugin-summarize",
-            arguments=KernelArguments(input=long_text)
-        )
-        print(f"Summary: {summary_result}")
-    except Exception as e:
-        print(f"Error testing prompt plugin: {e}")
-    
-    # Test function calling with chat completion
-    print("\n💬 Testing Function Calling with Azure OpenAI:")
-    try:
-        chat_history = ChatHistory()
-        chat_history.add_user_message("Can you calculate the square root of 16 and then multiply it by 3?")
+        # Get Azure OpenAI details from environment variables
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+        embedding_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
         
-        execution_settings = AzureOpenAIPromptExecutionSettings(
-            service_id="default",
-            function_call_behavior=FunctionCallBehavior.AutoInvokeKernelFunctions()
+        if not all([endpoint, api_key, deployment_name]):
+            raise ValueError("Please set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT_NAME in your .env file")
+        
+        print(f"Using Azure OpenAI endpoint: {endpoint}")
+        
+        # Add Azure OpenAI chat completion service
+        chat_completion = AzureChatCompletion(
+            deployment_name=deployment_name,
+            endpoint=endpoint,
+            api_key=api_key,
+            api_version="2024-06-01"
         )
         
-        response = await chat_completion.get_chat_message_content(
-            chat_history=chat_history,
-            settings=execution_settings,
-            kernel=kernel
+        kernel.add_service(chat_completion)
+        print("✅ Kernel and Azure OpenAI service configured successfully!")
+
+        # Add native math plugin
+        math_plugin = MathPlugin()
+        kernel.add_plugin(math_plugin, plugin_name="MathPlugin")
+        print("✅ MathPlugin added!")
+
+        # Add WritingPlugin
+        #writing_plugin = WritingPlugin(chat_completion)
+        writing = kernel.add_plugin(
+            parent_directory=str(Path(__file__).parent / "plugins"), 
+            plugin_name="writing_plugin"
         )
-        print(f"AI Response: {response}")
+        print("✅ WritingPlugin added!")
+
+        # Debug: Show available plugins and functions
+        print("\n📋 Available plugins and functions:")
+        for plugin_name, plugin in kernel.plugins.items():
+            print(f"  Plugin: {plugin_name}")
+            for func_name in plugin.functions.keys():
+                print(f"    Function: {func_name}")
+    
+        # Initialize memory service (if embedding deployment is configured)
+        if embedding_deployment:
+            print("\n🧠 Setting up memory service...")
+            memory_service = MemoryService(endpoint, api_key, embedding_deployment)
+
+            # Save some facts to memory
+            await memory_service.save_information("fact1", "The capital of France is Paris")
+            await memory_service.save_information("fact2", "Python is a programming language created by Guido van Rossum") 
+            await memory_service.save_information("fact3", "The Semantic Kernel is a Microsoft framework for AI orchestration")
+            
+            # Test memory search
+            print("\n🔍 Testing memory search:")
+            memory_result = await memory_service.search_memory("What is the capital of France?")
+            print(f"Memory search result: {memory_result}")
+        else:
+            print("\n⚠️ Embedding deployment not configured, skipping memory tests")
+        
+        # Test math plugin
+        print("\n🧮 Testing Math Plugin:")
+        try:
+            math_plugin_ref = kernel.plugins["MathPlugin"]
+            add_function = math_plugin_ref.functions["add"]
+            
+            math_result = await kernel.invoke(
+                add_function,
+                arguments=KernelArguments(number1=5, number2=3)
+            )
+            print(f"5 + 3 = {math_result}")
+
+            sqrt_function = math_plugin_ref.functions["square_root"]
+            sqrt_result = await kernel.invoke(
+                sqrt_function,
+                arguments=KernelArguments(number=16)
+            )
+            print(f"√16 = {sqrt_result}")
+
+        except Exception as e:
+            print(f"❌ Math plugin error: {e}")
+        
+        # Test WritingPlugin
+        print("\n📝 Testing Writing Plugin:")
+        try:
+            sample_text = """
+            Artificial Intelligence (AI) is revolutionizing how we work and live. It encompasses machine learning, 
+            natural language processing, computer vision, and robotics. AI applications range from virtual assistants 
+            and recommendation systems to autonomous vehicles and medical diagnosis tools. As AI technology continues 
+            to advance, it promises to solve complex problems across industries while also raising important questions 
+            about ethics, privacy, and the future of human work.
+            """
+            
+            print(f"Input text length: {len(sample_text)} characters")
+            
+            summary_result = await kernel.invoke(
+                writing["summarize"],
+                KernelArguments(input=sample_text.strip())
+            )
+            print(f"\n📄 Original text: {sample_text.strip()[:100]}...")
+            print(f"\n✨ AI Summary: {summary_result}")
+            
+        except Exception as e:
+            print(f"❌ WritingPlugin error: {e}")
+        
+        # Test function calling
+        print("\n💬 Testing Function Calling:")
+        try:
+            chat_history = ChatHistory()
+            chat_history.add_user_message("Can you calculate the square root of 25 and then multiply it by 4?")
+            
+            execution_settings = AzureChatPromptExecutionSettings(
+                function_choice_behavior=FunctionChoiceBehavior.Auto(),
+                max_tokens=500,
+                temperature=0.1
+            )
+            
+            response = await chat_completion.get_chat_message_content(
+                chat_history=chat_history,
+                settings=execution_settings,
+                kernel=kernel
+            )
+            print(f"🤖 AI Response: {response}")
+            
+        except Exception as e:
+            print(f"❌ Function calling error: {e}")
+        
+        print("\n🎉 Semantic Kernel Lab completed successfully!")
+        
     except Exception as e:
-        print(f"Error testing function calling: {e}")
-    
-    # Test filters (simulated - actual filter integration varies by SK version)
-    print("\n🔍 Testing Filters (Simulated):")
-    logging_filter = LoggingFilter()
-    security_filter = SecurityFilter()
-    
-    # Simulate filter usage
-    print("Simulating logging filter...")
-    try:
-        # This would normally be handled by the kernel's filter pipeline
-        test_args = KernelArguments(number1=10, number2=5)
-        print("Filters would log function execution here")
-    except Exception as e:
-        print(f"Filter error: {e}")
-    
-    print("\n🎉 Python Lab with Azure Government completed successfully!")
+        print(f"❌ Error: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -548,6 +572,7 @@ if __name__ == "__main__":
 ## Running the Python Lab
 
 1. **Navigate to your Python project folder** in VS Code
+
 2. **Activate the virtual environment:**
    ```bash
    # Windows:
@@ -555,6 +580,7 @@ if __name__ == "__main__":
    # macOS/Linux:
    source sk-env/bin/activate
    ```
+
 3. **Set your Azure OpenAI credentials in the `.env` file:**
    ```
    AZURE_OPENAI_ENDPOINT=https://your-actual-resource.openai.usgovcloudapi.net/
@@ -562,11 +588,15 @@ if __name__ == "__main__":
    AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-35-turbo
    AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
    ```
+
 4. **Run the application:**
    ```bash
    python main.py
    ```
-5. **Expected output:** Similar to C# lab with successful demonstrations of all components using Azure Government services
+
+5. **Expected output:** Successful demonstrations of all components using Azure Government services. Below is an expected outcome within VS Code terminal running Python.
+
+   ![Python lab finished results](/images/semantic_kernel_HOL_python_finished.png)
 
 ## Key Learning Points
 
@@ -584,7 +614,6 @@ if __name__ == "__main__":
 **Plugin Types:**
 - **Native Plugins:** Code-based functions (Python functions) that AI can call
 - **Prompt-based Plugins:** Template-driven AI behaviors using structured prompts
-- **OpenAPI Plugins:** Integration with external REST APIs (not demonstrated in Python version)
 
 **Memory Storage:**
 - Semantic search using Azure OpenAI vector embeddings deployed in Azure Government
@@ -603,11 +632,14 @@ if __name__ == "__main__":
 Python Project:
 ├── main.py (main application with Azure Government config)
 ├── .env (Azure Government environment variables)
+├── .env.example (Azure Government environment variables template)
 ├── memory_service.py (memory operations with Azure OpenAI embeddings)
 ├── filters.py (filter implementations)
 └── plugins/
     ├── math_plugin.py (native plugin)
-    └── writing_plugin/ (prompt-based plugin)
+    └── writing_plugin/summarize/ (prompt-based plugin)
+        ├── skprompt.txt
+        ├── config.json
 ```
 
 **Key VS Code Features Used:**
@@ -619,7 +651,7 @@ Python Project:
 ### Package Version Compatibility
 
 **Important Notes:**
-- **Semantic Kernel Versioning:** Semantic Kernel is rapidly evolving. Use version 1.27.0+ for the latest features and Azure Government support.
+- **Semantic Kernel Versioning:** Semantic Kernel is rapidly evolving. Use version 1.35.3+ for the latest features and Azure Government support.
 - **Azure Package Dependencies:** The `semantic-kernel[azure]` package automatically installs compatible versions of Azure SDKs and required dependencies.
 - **Python Version:** Requires Python 3.10 or later for optimal compatibility with the latest Semantic Kernel features.
 
