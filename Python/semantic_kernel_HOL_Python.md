@@ -596,7 +596,7 @@ if __name__ == "__main__":
 
 5. **Expected output:** Successful demonstrations of all components using Azure Government services. Below is an expected outcome within VS Code terminal running Python.
 
-   ![Python lab finished results](/images/semantic_kernel_HOL_python_finished.png)
+   ![Python lab finished results](./images/semantic_kernel_HOL_python_finished.png)
 
 ## Key Learning Points
 

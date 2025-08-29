@@ -39,7 +39,7 @@ pip install semantic-kernel[azure] python-dotenv pydantic
 - The `semantic-kernel[azure]` extra automatically includes `azure-identity`, `azure-core`, and other Azure-specific dependencies that are officially tested with Semantic Kernel
 - `asyncio` is a built-in Python module (Python 3.4+) and doesn't need separate installation
 - `typing-extensions` is typically included as a dependency of modern Python packages when needed
-- Advanced agent features like OpenAI Responses Agent require Semantic Kernel Python 1.27.0 or later
+- Advanced agent features like OpenAI Responses Agent require Semantic Kernel Python 1.35.3 or later
 
 **Alternative Individual Installation:**
 
@@ -113,21 +113,18 @@ AZURE_OPENAI_MODEL_ID=gpt-4
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
-from datetime import datetime
-import logging
+from typing import List
+from datetime import datetime, timezone
 
 class AgentBase(ABC):
-    """Abstract base class for all agent implementations."""
+    """Base class for all agents in the multi-agent system."""
     
     def __init__(self, agent_id: str, name: str, description: str):
+        """Initialize the agent with basic properties."""
         self.agent_id = agent_id
-        self.name = name  
+        self.name = name
         self.description = description
-        self.created_at = datetime.utcnow()
-        self.logger = logging.getLogger(f"Agent.{name}")
-        
-        self.log_agent_action("Initialized", f"Agent created with ID: {agent_id}")
+        self.action_log: List[str] = []
     
     @abstractmethod
     async def process_message_async(self, message: str) -> str:
@@ -135,22 +132,22 @@ class AgentBase(ABC):
         pass
     
     def log_agent_action(self, action: str, details: str = ""):
-        """Log agent actions with consistent formatting."""
-        log_message = f"🤖 [{self.name}] {action}"
+        """Log an agent action with timestamp."""
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        log_entry = f"[{timestamp}] {self.name} ({self.agent_id}): {action}"
         if details:
-            log_message += f"\n   └─ {details}"
-        print(log_message)
-        self.logger.info(f"{action}: {details}")
+            log_entry += f" - {details}"
+        self.action_log.append(log_entry)
+        print(f"📌 {log_entry}")
     
-    def get_agent_info(self) -> Dict[str, Any]:
-        """Get agent information."""
-        return {
-            "agent_id": self.agent_id,
-            "name": self.name,
-            "description": self.description,
-            "created_at": self.created_at.isoformat(),
-            "type": self.__class__.__name__
-        }
+    def get_action_log(self) -> List[str]:
+        """Get the agent's action log."""
+        return self.action_log.copy()
+    
+    def clear_action_log(self):
+        """Clear the agent's action log."""
+        self.action_log.clear()
+        self.log_agent_action("Action log cleared")
 ```
 
 > **What you're doing:** This creates a base class that all your agents will inherit from, providing common functionality, logging capabilities, and a consistent interface for agent operations.
@@ -162,10 +159,11 @@ class AgentBase(ABC):
 ```python
 import asyncio
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 from semantic_kernel.contents import ChatHistory, ChatMessageContent
+from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.azure_chat_prompt_execution_settings import AzureChatPromptExecutionSettings
 from agent_base import AgentBase
 
 class ChatCompletionAgent(AgentBase):
@@ -183,7 +181,10 @@ class ChatCompletionAgent(AgentBase):
         self.kernel = kernel
         self.system_prompt = system_prompt
         self.chat_history = ChatHistory()
-        self.chat_service = kernel.get_service(AzureChatCompletion)
+        
+        # Updated: Get the service by service_id instead of by type
+        # In SK 1.35.3, services are accessed by their service_id
+        self.chat_service = kernel.get_service(service_id="default")
         
         # Initialize with system prompt
         if system_prompt:
@@ -199,10 +200,17 @@ class ChatCompletionAgent(AgentBase):
             # Add user message to history
             self.chat_history.add_user_message(message)
             
+            # Updated: Use AzureChatPromptExecutionSettings for Azure
+            execution_settings = AzureChatPromptExecutionSettings(
+                service_id="default",  # Specify the service_id
+                temperature=0.7,
+                max_tokens=800
+            )
+            
             # Get response from Azure OpenAI
             response = await self.chat_service.get_chat_message_content(
                 chat_history=self.chat_history,
-                settings=None,
+                settings=execution_settings,
                 kernel=self.kernel
             )
             
@@ -220,14 +228,14 @@ class ChatCompletionAgent(AgentBase):
     
     def clear_history(self):
         """Clear chat history and reinitialize with system prompt."""
-        self.chat_history.clear()
+        self.chat_history = ChatHistory()
         if self.system_prompt:
             self.chat_history.add_system_message(self.system_prompt)
         self.log_agent_action("Chat history cleared")
     
     def get_message_count(self) -> int:
         """Get the number of messages in chat history."""
-        return len(self.chat_history)
+        return len(self.chat_history.messages)
     
     def get_chat_history(self) -> ChatHistory:
         """Get the current chat history."""
@@ -244,10 +252,10 @@ class ChatCompletionAgent(AgentBase):
 import json
 import asyncio
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
-from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.open_ai_prompt_execution_settings import OpenAIChatPromptExecutionSettings
+from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.azure_chat_prompt_execution_settings import AzureChatPromptExecutionSettings
 from semantic_kernel.contents import ChatHistory
 from agent_base import AgentBase
 from pydantic import BaseModel
@@ -276,7 +284,10 @@ class AzureAIAgent(AgentBase):
         self.kernel = kernel
         self.system_prompt = system_prompt
         self.chat_history = ChatHistory()
-        self.chat_service = kernel.get_service(AzureChatCompletion)
+        
+        # Updated: Get the service by service_id instead of by type
+        self.chat_service = kernel.get_service(service_id="default")
+        
         self.context: Dict[str, Any] = {}
         self.action_history: List[AgentAction] = []
         
@@ -293,7 +304,7 @@ class AzureAIAgent(AgentBase):
         self.log_agent_action("Processing message with context", message)
         
         action = AgentAction(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             input_message=message,
             agent_id=self.agent_id
         )
@@ -304,8 +315,9 @@ class AzureAIAgent(AgentBase):
             
             self.chat_history.add_user_message(contextual_message)
             
-            # Configure Azure OpenAI execution settings for Azure Government
-            execution_settings = OpenAIChatPromptExecutionSettings(
+            # Configure Azure OpenAI execution settings
+            execution_settings = AzureChatPromptExecutionSettings(
+                service_id="default",  # Specify the service_id
                 temperature=0.7,
                 max_tokens=1000,
                 top_p=0.9,
@@ -356,6 +368,11 @@ class AzureAIAgent(AgentBase):
             del self.context[key]
             self.log_agent_action("Context removed", key)
     
+    def clear_context(self):
+        """Clear all context information."""
+        self.context.clear()
+        self.log_agent_action("Context cleared", "All context removed")
+    
     def get_context(self) -> Dict[str, Any]:
         """Get current context."""
         return self.context.copy()
@@ -363,6 +380,15 @@ class AzureAIAgent(AgentBase):
     def get_action_history(self) -> List[AgentAction]:
         """Get action history."""
         return self.action_history.copy()
+    
+    def clear_chat_history(self):
+        """Clear chat history and reinitialize with system prompt."""
+        self.chat_history = ChatHistory()
+        enhanced_prompt = (f"{self.system_prompt}\n\n"
+                          f"You are an AI agent named '{self.name}' with ID '{self.agent_id}'. "
+                          f"{self.description}")
+        self.chat_history.add_system_message(enhanced_prompt)
+        self.log_agent_action("Chat history cleared", "History reset with system prompt")
 ```
 
 > **What you're doing:** This creates an enhanced Azure AI Agent that includes context management, action history tracking, and more sophisticated Azure OpenAI integration specifically configured for Azure Government Cloud.
@@ -373,8 +399,9 @@ class AzureAIAgent(AgentBase):
 
 ```python
 import json
+import uuid
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pydantic import BaseModel
 
@@ -397,11 +424,10 @@ class ConversationThread:
     """Manages conversation threads with multiple agents."""
     
     def __init__(self, thread_id: Optional[str] = None):
-        import uuid
         self.thread_id = thread_id or str(uuid.uuid4())
         self.messages: List[ThreadMessage] = []
         self.metadata: Dict[str, Any] = {}
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
         self.last_updated = self.created_at
         
         print(f"🧵 Thread created: {self.thread_id}")
@@ -414,19 +440,18 @@ class ConversationThread:
         role: ThreadMessageRole
     ):
         """Add a message to the thread."""
-        import uuid
         message = ThreadMessage(
             id=str(uuid.uuid4()),
             agent_id=agent_id,
             agent_name=agent_name,
             content=content,
             role=role,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         
         self.messages.append(message)
-        self.last_updated = datetime.utcnow()
-        
+        self.last_updated = datetime.now(timezone.utc)
+
         print(f"📝 [{agent_name}] {role.value}: {content}")
     
     def add_user_message(self, content: str):
@@ -440,7 +465,7 @@ class ConversationThread:
     def set_metadata(self, key: str, value: Any):
         """Set metadata for the thread."""
         self.metadata[key] = value
-        self.last_updated = datetime.utcnow()
+        self.last_updated = datetime.now(timezone.utc)
     
     def get_metadata(self, key: str, default: Any = None) -> Any:
         """Get metadata from the thread."""
@@ -478,6 +503,36 @@ class ConversationThread:
         }
         
         return json.dumps(export_data, indent=2)
+
+    def import_from_json(self, json_data: str):
+        """Import thread from JSON format."""
+        data = json.loads(json_data)
+        self.thread_id = data["thread_id"]
+        self.created_at = datetime.fromisoformat(data["created_at"])
+        self.last_updated = datetime.fromisoformat(data["last_updated"])
+        self.metadata = data.get("metadata", {})
+        
+        self.messages = []
+        for msg_data in data.get("messages", []):
+            message = ThreadMessage(
+                id=msg_data["id"],
+                agent_id=msg_data["agent_id"],
+                agent_name=msg_data["agent_name"],
+                content=msg_data["content"],
+                role=ThreadMessageRole(msg_data["role"]),
+                timestamp=datetime.fromisoformat(msg_data["timestamp"])
+            )
+            self.messages.append(message)
+
+    def get_recent_messages(self, count: int = 10) -> List[ThreadMessage]:
+        """Get the most recent messages from the thread."""
+        return self.messages[-count:] if self.messages else []
+    
+    def clear_messages(self):
+        """Clear all messages from the thread."""
+        self.messages = []
+        self.last_updated = datetime.now(timezone.utc)
+        print(f"🗑️ Thread {self.thread_id} messages cleared")
 ```
 
 > **What you're doing:** This creates a conversation thread manager that tracks all messages, maintains metadata, and provides a structured way to manage multi-agent conversations with full history and context preservation.
@@ -490,7 +545,7 @@ class ConversationThread:
 import asyncio
 import json
 from typing import List, Dict, Any, Optional, Callable, Awaitable, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from agent_base import AgentBase
 from conversation_thread import ConversationThread
@@ -544,8 +599,8 @@ class SequentialOrchestrator:
         self.orchestration_history: List[OrchestrationStep] = []
         
         # Callbacks
-        self.on_agent_response: Optional[self.AgentResponseCallback] = None
-        self.on_human_response_required: Optional[self.HumanResponseFunction] = None
+        self.on_agent_response: Optional[SequentialOrchestrator.AgentResponseCallback] = None
+        self.on_human_response_required: Optional[SequentialOrchestrator.HumanResponseFunction] = None
         
         print("🎭 Sequential Orchestrator initialized")
     
@@ -560,7 +615,7 @@ class SequentialOrchestrator:
         print(f"Initial message: {initial_message}")
         
         result = OrchestrationResult(
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(timezone.utc),
             initial_message=initial_message
         )
         
@@ -576,7 +631,7 @@ class SequentialOrchestrator:
                     agent_id=agent.agent_id,
                     agent_name=agent.name,
                     input_message=current_message,
-                    start_time=datetime.utcnow()
+                    start_time=datetime.now(timezone.utc)
                 )
                 
                 print(f"\n🔄 Step {step.step_number}: Processing with {agent.name}")
@@ -587,7 +642,7 @@ class SequentialOrchestrator:
                     
                     step.output_message = agent_response
                     step.success = True
-                    step.end_time = datetime.utcnow()
+                    step.end_time = datetime.now(timezone.utc)
                     
                     # Add agent response to thread
                     self.thread.add_agent_message(agent.agent_id, agent.name, agent_response)
@@ -621,7 +676,7 @@ class SequentialOrchestrator:
                 except Exception as ex:
                     step.success = False
                     step.error_message = str(ex)
-                    step.end_time = datetime.utcnow()
+                    step.end_time = datetime.now(timezone.utc)
                     
                     print(f"❌ Error in step {step.step_number}: {ex}")
                     
@@ -640,7 +695,7 @@ class SequentialOrchestrator:
                 result.steps.append(step)
                 self.orchestration_history.append(step)
             
-            result.end_time = datetime.utcnow()
+            result.end_time = datetime.now(timezone.utc)
             result.final_response = current_message
             
             if result.success:
@@ -650,7 +705,7 @@ class SequentialOrchestrator:
         except Exception as ex:
             result.success = False
             result.error_message = str(ex)
-            result.end_time = datetime.utcnow()
+            result.end_time = datetime.now(timezone.utc)
             
             print(f"❌ Orchestration failed: {ex}")
         
@@ -674,6 +729,80 @@ class SequentialOrchestrator:
         }
         
         return json.dumps(summary, indent=2)
+    
+    def clear_history(self):
+        """Clear orchestration history."""
+        self.orchestration_history.clear()
+        print("🗑️ Orchestration history cleared")
+    
+    def remove_agent(self, agent_id: str) -> bool:
+        """Remove an agent from the orchestrator by ID."""
+        initial_count = len(self.agents)
+        self.agents = [agent for agent in self.agents if agent.agent_id != agent_id]
+        removed = len(self.agents) < initial_count
+        
+        if removed:
+            print(f"➖ Agent removed from orchestrator: {agent_id}")
+        else:
+            print(f"⚠️ Agent not found: {agent_id}")
+        
+        return removed
+    
+    def get_agent_by_id(self, agent_id: str) -> Optional[AgentBase]:
+        """Get an agent by its ID."""
+        for agent in self.agents:
+            if agent.agent_id == agent_id:
+                return agent
+        return None
+    
+    async def execute_with_retry_async(
+        self, 
+        initial_message: str, 
+        max_retries: int = 3,
+        retry_delay: float = 1.0
+    ) -> OrchestrationResult:
+        """Execute orchestration with retry logic."""
+        last_result = None
+        
+        for attempt in range(max_retries):
+            print(f"\n🔁 Attempt {attempt + 1} of {max_retries}")
+            
+            try:
+                result = await self.execute_sequential_async(initial_message)
+                
+                if result.success:
+                    return result
+                
+                last_result = result
+                
+                if attempt < max_retries - 1:
+                    print(f"⏳ Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    
+            except Exception as ex:
+                print(f"❌ Attempt {attempt + 1} failed: {ex}")
+                
+                if attempt < max_retries - 1:
+                    print(f"⏳ Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    # Create error result for final failure
+                    last_result = OrchestrationResult(
+                        start_time=datetime.now(timezone.utc),
+                        end_time=datetime.now(timezone.utc),
+                        initial_message=initial_message,
+                        success=False,
+                        error_message=str(ex)
+                    )
+        
+        print(f"❌ All {max_retries} attempts failed")
+        return last_result or OrchestrationResult(
+            start_time=datetime.now(timezone.utc),
+            end_time=datetime.now(timezone.utc),
+            initial_message=initial_message,
+            success=False,
+            error_message="All retry attempts failed"
+        )
 ```
 
 > **What you're doing:** This creates a sophisticated sequential orchestrator that manages multiple agents in sequence, handles callbacks, supports human-in-the-loop scenarios, and provides detailed tracking of the orchestration process.
@@ -690,6 +819,7 @@ from typing import Tuple
 from dotenv import load_dotenv
 from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.connectors.ai.open_ai.prompt_execution_settings.azure_chat_prompt_execution_settings import AzureChatPromptExecutionSettings
 
 # Import our custom modules
 from chat_completion_agent import ChatCompletionAgent
@@ -710,11 +840,13 @@ def create_kernel() -> Kernel:
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
     deployment_name = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")  # Default to stable API version
     
     if not all([endpoint, api_key, deployment_name]):
         raise ValueError("Missing required Azure OpenAI environment variables")
     
     print(f"🔧 Configuring kernel with Azure Government endpoint: {endpoint}")
+    print(f"📌 API Version: {api_version}")
     
     # Create kernel
     kernel = Kernel()
@@ -724,8 +856,10 @@ def create_kernel() -> Kernel:
         service_id="default",
         deployment_name=deployment_name,
         endpoint=endpoint,
-        api_key=api_key
+        api_key=api_key,
+        api_version=api_version  # Added API version for proper Azure configuration
     )
+
     kernel.add_service(chat_completion)
     
     print("✅ Kernel created successfully with Azure Government configuration!")
@@ -734,7 +868,7 @@ def create_kernel() -> Kernel:
 async def demonstrate_single_agent(kernel: Kernel):
     """Demonstrate single agent creation and usage."""
     print("\n🔹 DEMONSTRATION 1: Single Agent Creation and Usage")
-    print("====================================================")
+    print("=" * 52)
     
     # Create a Chat Completion Agent
     chat_agent = ChatCompletionAgent(
@@ -757,7 +891,7 @@ async def demonstrate_single_agent(kernel: Kernel):
     # Test Chat Completion Agent
     print("\n🧪 Testing Chat Completion Agent:")
     chat_response = await chat_agent.process_message_async("What is artificial intelligence?")
-    print(f"Response: {chat_response}\n")
+    print(f"Response: {chat_response[:500]}...\n" if len(chat_response) > 500 else f"Response: {chat_response}\n")
     
     # Test Azure AI Agent with context
     print("🧪 Testing Azure AI Agent with context:")
@@ -767,7 +901,7 @@ async def demonstrate_single_agent(kernel: Kernel):
     azure_response = await azure_agent.process_message_async(
         "How should I design a secure Azure architecture for a government application?"
     )
-    print(f"Response: {azure_response}\n")
+    print(f"Response: {azure_response[:500]}...\n" if len(azure_response) > 500 else f"Response: {azure_response}\n")
     
     # Show agent capabilities
     print("📊 Agent Information:")
@@ -778,7 +912,7 @@ async def demonstrate_single_agent(kernel: Kernel):
 async def demonstrate_thread_management(kernel: Kernel):
     """Demonstrate conversation thread management."""
     print("🔹 DEMONSTRATION 2: Conversation Thread Management")
-    print("===================================================")
+    print("=" * 51)
     
     # Create a conversation thread
     thread = ConversationThread()
@@ -824,12 +958,13 @@ async def demonstrate_thread_management(kernel: Kernel):
     
     exported_json = thread.export_to_json()
     print("💾 Thread exported to JSON:")
-    print(exported_json[:500] + "...\n")
+    print(exported_json[:500] + "..." if len(exported_json) > 500 else exported_json)
+    print()
 
 async def demonstrate_multi_agent_orchestration(kernel: Kernel):
     """Demonstrate multi-agent sequential orchestration."""
     print("🔹 DEMONSTRATION 3: Multi-Agent Sequential Orchestration")
-    print("=========================================================")
+    print("=" * 57)
     
     # Create specialized agents for the orchestration
     requirements_agent = ChatCompletionAgent(
@@ -880,7 +1015,7 @@ async def demonstrate_multi_agent_orchestration(kernel: Kernel):
     # Implement human response function
     async def human_response_function(prompt: str) -> Tuple[bool, str]:
         print(f"\n🤔 Human input requested:")
-        print(f"Prompt: {prompt}")
+        print(f"Prompt: {prompt[:200]}..." if len(prompt) > 200 else f"Prompt: {prompt}")
         print("\nOptions:")
         print("1. Press ENTER to continue with agent output")
         print("2. Type custom input to modify the flow")
@@ -915,8 +1050,11 @@ async def demonstrate_multi_agent_orchestration(kernel: Kernel):
     if not result.success and result.error_message:
         print(f"Error: {result.error_message}")
     
-    print(f"\n📄 Final Response:")
-    print(f"{result.final_response}")
+    print(f"\n📄 Final Response (preview):")
+    final_response_preview = result.final_response[:1000] if len(result.final_response) > 1000 else result.final_response
+    print(final_response_preview)
+    if len(result.final_response) > 1000:
+        print("... [truncated for display]")
     
     # Show detailed step information
     print(f"\n🔍 Detailed Step Information:")
@@ -929,34 +1067,78 @@ async def demonstrate_multi_agent_orchestration(kernel: Kernel):
     
     # Export orchestration summary
     print(f"\n💾 Orchestration Summary:")
-    print(orchestrator.get_orchestration_summary())
+    summary = orchestrator.get_orchestration_summary()
+    print(summary[:1000] if len(summary) > 1000 else summary)
+    if len(summary) > 1000:
+        print("... [truncated for display]")
+
+async def demonstrate_retry_mechanism(kernel: Kernel):
+    """Demonstrate orchestration with retry mechanism."""
+    print("\n🔹 DEMONSTRATION 4: Orchestration with Retry Mechanism")
+    print("=" * 55)
+    
+    # Create a simple agent for testing
+    test_agent = ChatCompletionAgent(
+        agent_id="test-agent",
+        name="Test Agent",
+        description="Agent for testing retry mechanism",
+        system_prompt="You are a test agent. Provide brief responses.",
+        kernel=kernel
+    )
+    
+    # Create orchestrator with single agent
+    orchestrator = SequentialOrchestrator()
+    orchestrator.add_agent(test_agent)
+    
+    # Execute with retry
+    print("🔄 Testing retry mechanism...")
+    result = await orchestrator.execute_with_retry_async(
+        initial_message="What is the capital of France?",
+        max_retries=2,
+        retry_delay=0.5
+    )
+    
+    print(f"\n✅ Retry test completed:")
+    print(f"   Success: {result.success}")
+    print(f"   Response: {result.final_response[:200]}..." if len(result.final_response) > 200 else f"   Response: {result.final_response}")
 
 async def main():
     """Main application entry point."""
     print("🤖 Semantic Kernel Multi-Agent Orchestration Lab")
-    print("=================================================\n")
+    print("=" * 49)
+    print("Version: Semantic Kernel 1.35.3")
+    print("Environment: Azure Government Cloud\n")
     
     try:
         # Create kernel with Azure OpenAI for Azure Government
         kernel = create_kernel()
         
-        # Demonstrate single agent creation and usage
+        # Run demonstrations
         await demonstrate_single_agent(kernel)
-        
-        # Demonstrate thread management
         await demonstrate_thread_management(kernel)
-        
-        # Demonstrate multi-agent orchestration
         await demonstrate_multi_agent_orchestration(kernel)
+        await demonstrate_retry_mechanism(kernel)
+        
+        print("\n" + "=" * 50)
+        print("🎉 All demonstrations completed successfully!")
+        print("=" * 50)
         
     except Exception as ex:
-        print(f"❌ Application error: {ex}")
-        logger.error(f"Application failed: {ex}")
+        print(f"\n❌ Application error: {ex}")
+        logger.error(f"Application failed: {ex}", exc_info=True)
+        raise
     
-    print("\n🎉 Multi-Agent Lab completed!")
+    print("\n👋 Thank you for using the Multi-Agent Orchestration Lab!")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Run the main async function
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\n⚠️ Application interrupted by user")
+    except Exception as e:
+        print(f"\n💥 Fatal error: {e}")
+        logger.error(f"Fatal error: {e}", exc_info=True)
 ```
 
 > **What you're doing:** This complete application demonstrates all aspects of multi-agent orchestration including single agent creation, thread management, sequential orchestration with callbacks, and human-in-the-loop functionality, all configured for Azure Government compliance.
