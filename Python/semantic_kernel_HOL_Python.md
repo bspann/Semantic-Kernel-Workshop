@@ -6,14 +6,14 @@ This comprehensive lab guide will walk you through building a complete Semantic 
 
 ### Development Environment
 - Visual Studio Code
-- Python 3.8 or later (Python 3.10+ recommended)
+- Python 3.10 or later (Python 3.12+ recommended)
 - Python extension for VS Code
 
 ### Required Azure OpenAI Resources
 - Azure OpenAI resource deployed in Azure Government Cloud
 - Azure OpenAI service endpoint (e.g., `https://your-resource.openai.usgovcloudapi.net/`)
 - Azure OpenAI API key
-- Deployed models: `gpt-35-turbo` and `text-embedding-ada-002`
+- Deployed models: `gpt-4o` and `text-embedding-ada-002`
 
 ## Required Python Packages
 
@@ -21,7 +21,7 @@ Before starting the Python lab, you'll need to install the following Python pack
 
 | Package Name | Version | Purpose |
 |--------------|---------|---------|
-| `semantic-kernel[azure]` | 1.27.0+ | Core Semantic Kernel with Azure connectors for Azure OpenAI and other Azure services |
+| `semantic-kernel[azure]` | 1.35.0+ | Core Semantic Kernel with Azure connectors for Azure OpenAI and other Azure services |
 | `python-dotenv` | Latest | Environment variable management for secure configuration |
 | `aiofiles` | Latest | Asynchronous file operations (required by some SK components) |
 
@@ -33,7 +33,7 @@ Before starting the Python lab, you'll need to install the following Python pack
 
 **Important Notes:**
 - **Azure Authentication:** Azure OpenAI services support both API key and Microsoft Entra ID authentication. For API key authentication (used in this lab), no additional authentication packages are required.
-- **Latest Version:** Semantic Kernel 1.27.0+ includes the latest Azure OpenAI features and Azure Government support.
+- **Latest Version:** Semantic Kernel 1.35.0+ includes the latest Azure OpenAI features and Azure Government support.
 - **Simplified Dependencies:** The `semantic-kernel[azure]` package now includes all necessary Azure service dependencies, eliminating the need for separate `azure-identity` and `numpy` packages for basic functionality.
 
 ## Step 1: Python Project Setup
@@ -381,9 +381,9 @@ class SecurityFilter:
 
 ```bash
 # Create .env file in the project root with Azure Government specific values
-echo "AZURE_OPENAI_ENDPOINT=https://your-resource.openai.usgovcloudapi.net/" > .env
+echo "AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.us/" > .env
 echo "AZURE_OPENAI_API_KEY=your-azure-openai-api-key" >> .env
-echo "AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-35-turbo" >> .env
+echo "AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o" >> .env
 echo "AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002" >> .env
 ```
 
@@ -391,9 +391,9 @@ echo "AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002" >> .env
 
 ```bash
 # Example environment variables for Azure Government
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.usgovcloudapi.net/
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.us/
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-35-turbo
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 ```
 
@@ -609,7 +609,7 @@ if __name__ == "__main__":
 **Chat Completion Service:**
 - Integrated Azure OpenAI's GPT models deployed in Azure Government for natural language processing
 - Configured for function calling to enable AI to use your plugins automatically
-- Uses Azure Government specific endpoints (`.usgovcloudapi.net`) for compliance requirements
+- Uses Azure Government specific endpoints (`.azure.us`) for compliance requirements
 
 **Plugin Types:**
 - **Native Plugins:** Code-based functions (Python functions) that AI can call
@@ -668,7 +668,7 @@ pip show semantic-kernel
 
 **Common Issues:**
 1. **Azure OpenAI Credential Errors:** Ensure your Azure OpenAI resource is properly deployed in Azure Government and API key is valid
-2. **Endpoint Configuration:** Verify you're using the correct Azure Government endpoint (`.usgovcloudapi.net`)
+2. **Endpoint Configuration:** Verify you're using the correct Azure Government endpoint (`.azure.us`)
 3. **Model Deployment Names:** Check that your deployment names exactly match those in Azure OpenAI Studio
 4. **Package Versions:** Semantic Kernel is rapidly evolving; ensure Azure connector packages are compatible
 5. **Path Issues:** Verify plugin directory structures match exactly as shown

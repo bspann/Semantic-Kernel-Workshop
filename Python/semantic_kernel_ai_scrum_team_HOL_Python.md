@@ -47,9 +47,9 @@ pip install semantic-kernel[azure] python-dotenv
 Create a `.env` file with your Azure OpenAI configuration:
 
 ```env
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.us/
 AZURE_OPENAI_KEY=your-api-key
-MODEL_NAME=gpt-4
+MODEL_NAME=gpt-4o
 ```
 
 ### Project Structure

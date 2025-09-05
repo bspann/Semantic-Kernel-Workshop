@@ -13,9 +13,9 @@ This comprehensive hands-on lab will guide you through building advanced multi-a
 ### Required Azure OpenAI Resources
 
 - Azure OpenAI resource deployed in Azure Government Cloud
-- Azure OpenAI service endpoint (e.g., `https://your-resource.openai.usgovcloudapi.net/`)
+- Azure OpenAI service endpoint (e.g., `https://your-resource.openai.azure.us/`)
 - Azure OpenAI API key
-- Deployed models: `gpt-4` or `gpt-35-turbo` (for optimal agent performance)
+- Deployed models: `gpt-4o` or `gpt-35-turbo` (for optimal agent performance)
 
 ## Required Python Packages
 
@@ -91,8 +91,8 @@ pip install pydantic
 # Azure Government OpenAI Configuration
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.usgovcloudapi.net/
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
-AZURE_OPENAI_MODEL_ID=gpt-4
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_MODEL_ID=gpt-4o
 ```
 
 6. **Create a `.env.example` file** as a template:
@@ -101,8 +101,8 @@ AZURE_OPENAI_MODEL_ID=gpt-4
 # Example environment variables for Azure Government
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.usgovcloudapi.net/
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
-AZURE_OPENAI_MODEL_ID=gpt-4
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_MODEL_ID=gpt-4o
 ```
 
 > **What you're doing:** Environment variables provide secure credential management for Azure Government OpenAI resources, ensuring sensitive information is not hardcoded in your application.
@@ -1161,8 +1161,8 @@ if __name__ == "__main__":
    ```
    AZURE_OPENAI_ENDPOINT=https://your-actual-resource.openai.usgovcloudapi.net/
    AZURE_OPENAI_API_KEY=your-actual-api-key
-   AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
-   AZURE_OPENAI_MODEL_ID=gpt-4
+   AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
+   AZURE_OPENAI_MODEL_ID=gpt-4o
    ```
 
 4. **Run the application:**
