@@ -89,7 +89,7 @@ pip install pydantic
 
 ```bash
 # Azure Government OpenAI Configuration
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.usgovcloudapi.net/
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.us/
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key
 AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_MODEL_ID=gpt-4o
@@ -99,7 +99,7 @@ AZURE_OPENAI_MODEL_ID=gpt-4o
 
 ```bash
 # Example environment variables for Azure Government
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.usgovcloudapi.net/
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.us/
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
 AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_MODEL_ID=gpt-4o
