@@ -128,7 +128,7 @@ from semantic_kernel.agents import ChatCompletionAgent
 
 def create_solution_architect_agent(kernel):
     return ChatCompletionAgent(
-        kernel=kernel
+        kernel=kernel,
         name="SolutionArchitect",
         description="Designs the overall solution architecture and identifies technical dependencies.",
         instructions=(
@@ -152,7 +152,7 @@ from semantic_kernel.agents import ChatCompletionAgent
 
 def create_qa_agent(kernel):
     return ChatCompletionAgent(
-        kernel=kernel
+        kernel=kernel,
         name="QATester",
         description="Generates test scenarios and test cases in Gherkin format for each user story.",
         instructions=(
