@@ -215,7 +215,7 @@ class MathPlugin:
    mkdir -p plugins/writing_plugin/summarize
    ```
 
-10. **Create `plugins/writing_plugin/summarize/skpromp.txt`**:
+10. **Create `plugins/writing_plugin/summarize/skprompt.txt`**:
 ```text
 Summarize the following text in a concise way:
 {{$input}}
